@@ -1,0 +1,15 @@
+name: Lizard Runner
+
+on:
+  push:
+
+jobs:
+  lizard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v3
+      - name: Lizard Runner
+        uses: Uno-Takashi/lizard-runner@v3
+        with:
+          language: "python"
