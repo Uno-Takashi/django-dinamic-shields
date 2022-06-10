@@ -12,9 +12,13 @@
 [![Python](https://img.shields.io/badge/-Python-F9DC3E.svg?logo=python&style=flat)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/-Django-092E20.svg?logo=django&style=flat)](https://www.djangoproject.com/)
 
-## Overview
+## 📚 Overview
 
-## License
+## ⚒️ Develop
+
+## 📝 License
+
+[MIT License](https://github.com/Uno-Takashi/django-dynamic-shields/blob/main/LICENSE)
 
 ![GitHub watchers](https://img.shields.io/github/watchers/Uno-Takashi/django-dynamic-shields?style=social)
 ![GitHub Repo stars](https://img.shields.io/github/stars/Uno-Takashi/django-dynamic-shields?style=social)
