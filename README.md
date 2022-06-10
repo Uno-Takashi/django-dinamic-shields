@@ -18,7 +18,7 @@
 
 ## 📝 License
 
-[MIT License](https://github.com/Uno-Takashi/django-dynamic-shields/blob/main/LICENSE)
+- [MIT License](https://github.com/Uno-Takashi/django-dynamic-shields/blob/main/LICENSE)
 
 ![GitHub watchers](https://img.shields.io/github/watchers/Uno-Takashi/django-dynamic-shields?style=social)
 ![GitHub Repo stars](https://img.shields.io/github/stars/Uno-Takashi/django-dynamic-shields?style=social)
