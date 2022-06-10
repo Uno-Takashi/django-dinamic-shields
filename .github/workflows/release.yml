@@ -30,6 +30,8 @@ jobs:
           poetry plugin add poetry-version-plugin
       - name: PyPI Settings
         run: |
+          poetry config repositories.testpypi https://test.pypi.org/legacy/
+          poetry config pypi-token.testpypi ${{secrets.PYPI_TOKEN}}
           poetry config pypi-token.pypi ${{secrets.PYPI_TOKEN}}
       - name: Build Poetry
         run: |
