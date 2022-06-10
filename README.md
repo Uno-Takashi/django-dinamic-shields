@@ -7,6 +7,13 @@
 [![lizard](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/lizard.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/lizard.yml)
 
 ![GitHub contributors](https://img.shields.io/github/contributors/Uno-Takashi/django-dynamic-shields?color=g)
+![GitHub all releases](https://img.shields.io/github/downloads/Uno-Takashi/django-dynamic-shields/total)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Uno-Takashi/django-dynamic-shields/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/-Python-F9DC3E.svg?logo=python&style=flat)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/-Django-092E20.svg?logo=django&style=flat)](https://www.djangoproject.com/)
+
+## Overview
+
+## License
+
+![GitHub Repo stars](https://img.shields.io/github/stars/Uno-Takashi/django-dynamic-shields?style=social)
