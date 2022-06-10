@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "django-dinamic-shelds"
+name = "django-dynamic-shelds"
 version = "0.1.0"
 description = ""
 authors = ["Takashi Uno <euno.eng@gmail.com>"]
 readme = "README.md"
-packages = [{include = "django_dinamic_shelds"}]
+packages = [{include = "django_dynamic_shelds"}]
 
 [tool.poetry.dependencies]
 python = "^3.8"
