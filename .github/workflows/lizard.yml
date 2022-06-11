@@ -6,10 +6,11 @@ on:
 jobs:
   lizard:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v3
       - name: Lizard Runner
         uses: Uno-Takashi/lizard-runner@v3
         with:
+          path: "./django_dynamic_shields"
           language: "python"
