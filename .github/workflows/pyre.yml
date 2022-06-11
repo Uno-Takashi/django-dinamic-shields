@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: install watchman
-        run: apt-get install watchman
+        run: sudo apt-get install watchman
       - name: Set up Python
         uses: actions/setup-python@v1
         with:
@@ -20,7 +20,7 @@ jobs:
           python install-poetry.py --preview --version 1.2.0a2
       - name: Add path for Poetry
         run: echo "$HOME/.poetry/bin" >> $GITHUB_PATH
-      - name: poetry install
+      - name: init poetry
         run: poetry install
       - name: run pyre
         run: poetry run pyre
