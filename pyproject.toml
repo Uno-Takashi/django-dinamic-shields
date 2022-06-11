@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "django-dynamic-shelds"
+name = "django-dynamic-shields"
 version = "0.1.0"
 description = ""
 authors = ["Takashi Uno <euno.eng@gmail.com>"]
 readme = "README.md"
-packages = [{include = "django_dynamic_shelds"}]
+packages = [{include = "django_dynamic_shields"}]
 
 [tool.poetry.dependencies]
 python = "^3.8"
@@ -15,6 +15,7 @@ Django = "^4.0.5"
 black = "^22.3.0"
 pytest = "^7.1.2"
 pytest-django = "^4.5.2"
+pyre-check = "^0.9.13"
 
 [build-system]
 requires = ["poetry-core"]
