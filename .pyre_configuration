@@ -1,0 +1,10 @@
+{
+  "site_package_search_strategy": "pep561",
+  "source_directories": [
+    {
+      "import_root": ".",
+      "source": "./django_dynamic_shields"
+    }
+  ],
+  "taint_models_path": "/mnt/c/Users/Eunon/source/repos/django-dinamic-shields/.venv/lib/pyre_check/taint"
+}
