@@ -903,7 +903,7 @@ test = ["pytest", "typing-extensions", "mypy"]
 name = "typing-extensions"
 version = "4.2.0"
 description = "Backported and Experimental Type Hints for Python 3.7+"
-category = "dev"
+category = "main"
 optional = false
 python-versions = ">=3.7"
 
@@ -985,7 +985,7 @@ python-versions = "*"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "170668f88ba88ad0bfc8d1a8a4ea681b4229a8e4d04ceec383dd7d089f2ff360"
+content-hash = "c220fa1a8a814cfd3fc217ba1b5c6ff78a98c1d21063e3123137e53e14455568"
 
 [metadata.files]
 aniso8601 = [
