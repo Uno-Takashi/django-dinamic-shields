@@ -10,6 +10,7 @@
 ![GitHub contributors](https://img.shields.io/github/contributors/Uno-Takashi/django-dynamic-shields?color=g)
 ![GitHub all releases](https://img.shields.io/github/downloads/Uno-Takashi/django-dynamic-shields/total)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Uno-Takashi/django-dynamic-shields/blob/main/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/django-dynamic-shields)](https://pypi.org/project/django-dynamic-shields/)
 [![Python](https://img.shields.io/badge/-Python-F9DC3E.svg?logo=python&style=flat)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/-Django-092E20.svg?logo=django&style=flat)](https://www.djangoproject.com/)
 
