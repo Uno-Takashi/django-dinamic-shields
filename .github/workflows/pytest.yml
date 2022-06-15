@@ -1,10 +1,10 @@
-name: release
+name: pytest
 
 on:
   push: 
 
 jobs:
-  release:
+  pytest:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
