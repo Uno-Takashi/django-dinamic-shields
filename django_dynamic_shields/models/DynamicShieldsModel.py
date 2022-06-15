@@ -2,7 +2,6 @@ from django.db.models import Model
 
 
 class ShieldsDataModel(Model):
-
     label = models.CharField(max_length=50)
     message = models.CharField(max_length=50)
     color = models.CharField(max_length=15, default="lightgrey")
