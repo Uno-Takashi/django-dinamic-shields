@@ -4,7 +4,8 @@ from django_dynamic_shields.data import ShieldsData
 
 
 class DynamicShieldsView(View):
-    shields_data:ShieldsData
+    shields_data: ShieldsData
+
     def create_shields_data(self):
         pass
 
