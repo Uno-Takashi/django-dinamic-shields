@@ -18,11 +18,20 @@
 
 ## 📚 Overview
 
+shields.io is one of the great inventions in human history. Everyone has collected badges and stickers as a child. In other words, it is one of the fundamental human needs to stick a badge.
+
+## Install
+
+```shell
+pip install django-dynamic-shields
+```
+
 ## ⚒️ Develop
 
 ## 📝 License
 
 - [MIT License](https://github.com/Uno-Takashi/django-dynamic-shields/blob/main/LICENSE)
+
 
 ![GitHub watchers](https://img.shields.io/github/watchers/Uno-Takashi/django-dynamic-shields?style=social)
 ![GitHub Repo stars](https://img.shields.io/github/stars/Uno-Takashi/django-dynamic-shields?style=social)
