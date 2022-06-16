@@ -20,7 +20,7 @@
 
 shields.io is one of the great inventions in human history. Everyone has collected badges and stickers as a child. In other words, it is one of the fundamental human needs to stick a badge.
 
-## Install
+## 💾 Install
 
 ```shell
 pip install django-dynamic-shields
