@@ -20,7 +20,7 @@
 
 [Shields.io](https://shields.io/) is one of the great inventions in human history. Everyone has collected badges and stickers as a child. In other words, it is one of the fundamental human needs to stick a badge.
 
-With django-dynamic-badge, the display can be changed dynamically using information from a server built with django.
+With django-dynamic-badge, the display can be changed dynamically using information from a server built with [Django](https://www.djangoproject.com/).
 
 For example, create a badge with the number of active users today, the number of times the function has been used, and the results of the server health check.
 
@@ -33,6 +33,8 @@ pip install django-dynamic-shields
 ```
 
 Alternatively, you can download and install the .whl file from the [release](https://github.com/Uno-Takashi/django-dynamic-shields/releases).
+
+## 🎮 Usage
 
 ## ⚒️ Develop
 
