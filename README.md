@@ -1,12 +1,14 @@
 # django-dynamic-shields
 
 [![release](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/release.yml)
+[![pytest](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pytest.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pytest.yml)
 [![CodeQL](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/codeql-analysis.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/codeql-analysis.yml)
 [![bandit](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/bandit.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/bandit.yml)
 [![pyt](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pyt.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pyt.yml)
 [![lizard](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/lizard.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/lizard.yml)
 [![pyre](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pyre.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pyre.yml)
 
+[![codecov](https://codecov.io/gh/Uno-Takashi/django-dynamic-shields/branch/main/graph/badge.svg?token=3CWnrX8w7n)](https://codecov.io/gh/Uno-Takashi/django-dynamic-shields)
 ![GitHub contributors](https://img.shields.io/github/contributors/Uno-Takashi/django-dynamic-shields?color=g)
 ![GitHub all releases](https://img.shields.io/github/downloads/Uno-Takashi/django-dynamic-shields/total)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Uno-Takashi/django-dynamic-shields/blob/main/LICENSE)
