@@ -9,6 +9,6 @@ class DynamicShieldsView(View):
     def create_shields_data(self):
         pass
 
-    def get(self):
+    def get(self, request, *args, **kwargs):
         create_shields_data()
         return JsonResponse(self.shields_data.dict)

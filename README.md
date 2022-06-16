@@ -22,9 +22,13 @@ shields.io is one of the great inventions in human history. Everyone has collect
 
 ## 💾 Install
 
+It can be installed with the following command.
+
 ```shell
 pip install django-dynamic-shields
 ```
+
+Alternatively, you can download and install the .whl file from the [release](https://github.com/Uno-Takashi/django-dynamic-shields/releases).
 
 ## ⚒️ Develop
 
