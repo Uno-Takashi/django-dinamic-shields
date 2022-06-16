@@ -18,11 +18,15 @@
 
 ## 📚 Overview
 
-shields.io is one of the great inventions in human history. Everyone has collected badges and stickers as a child. In other words, it is one of the fundamental human needs to stick a badge.
+[Shields.io](https://shields.io/) is one of the great inventions in human history. Everyone has collected badges and stickers as a child. In other words, it is one of the fundamental human needs to stick a badge.
+
+With django-dynamic-badge, the display can be changed dynamically using information from a server built with django.
+
+For example, create a badge with the number of active users today, the number of times the function has been used, and the results of the server health check.
 
 ## 💾 Install
 
-It can be installed with the following command.
+Published on [PyPI](https://pypi.org/). It can be installed with the following command.
 
 ```shell
 pip install django-dynamic-shields
