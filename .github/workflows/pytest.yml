@@ -21,4 +21,13 @@ jobs:
       - name: install enviroment
         run: poetry install
       - name: run pytest
-        run: poetry run pytest --cov=django_dynamic_shields --workers 4
+        run: poetry run pytest --cov=django_dynamic_shields --cov-report=xml --workers auto
+    - name: upload coverage
+      uses: codecov/codecov-action@v1
+      with:
+        token: ${{ secrets.CODECOV_SECRET }}
+          file: ./coverage.xml
+          env_vars: OS,PYTHON
+          name: codecov-umbrella
+          fail_ci_if_error: true
+          verbose: true
