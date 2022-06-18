@@ -9,8 +9,8 @@
 [![pyre](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pyre.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pyre.yml)
 
 [![codecov](https://codecov.io/gh/Uno-Takashi/django-dynamic-shields/branch/main/graph/badge.svg?token=3CWnrX8w7n)](https://codecov.io/gh/Uno-Takashi/django-dynamic-shields)
-[![PyPI - Downloads](https://img.shields.io/pypi/dw/django-dynamic-shields?label=PyPI%20download)](https://pypi.org/project/django-dynamic-shields/)
-[![PyPI](https://img.shields.io/pypi/v/django-dynamic-shields?label=PyPI&namedLogo=python)](https://pypi.org/project/django-dynamic-shields/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dw/django-dynamic-shields?label=PyPI%20download&logo=python)](https://pypi.org/project/django-dynamic-shields/)
+[![PyPI](https://img.shields.io/pypi/v/django-dynamic-shields?label=PyPI&logo=python)](https://pypi.org/project/django-dynamic-shields/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Uno-Takashi/django-dynamic-shields/blob/main/LICENSE)
 
 ## 📚 Overview
