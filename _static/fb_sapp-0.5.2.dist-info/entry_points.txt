@@ -1,0 +1,3 @@
+[console_scripts]
+sapp = sapp.cli:cli
+
