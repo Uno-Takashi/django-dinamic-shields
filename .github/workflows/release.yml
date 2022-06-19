@@ -67,7 +67,7 @@ jobs:
       - name: pull builder image
         run: docker pull macrat/sphinx-pdf
       - name: build pdf
-        run: docker run --rm --user $UID -v `pwd`:/docs macrat/sphinx-pdf
+        run: docker run --rm --user $UID -v `pwd`/docs:/docs macrat/sphinx-pdf
       - name: upload PDF
         uses: actions/upload-release-asset@v1
         env:
