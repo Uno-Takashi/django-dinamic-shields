@@ -19,6 +19,9 @@ pytest-django = "^4.5.2"
 fb-sapp = "^0.5.2"
 pytest-cov = "^3.0.0"
 pytest-parallel = "^0.1.1"
+Sphinx = "^5.0.2"
+sphinx-autobuild = "^2021.3.14"
+sphinx-rtd-theme = "^1.0.0"
 
 [build-system]
 requires = ["poetry-core"]

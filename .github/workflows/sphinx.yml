@@ -1,0 +1,31 @@
+name: sphinx
+
+on:
+  push:
+    branches:
+      - "main"
+
+jobs:
+  sphinx:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.9
+      - name: Install Poetry
+        run: |
+          curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/install-poetry.py -O
+          python install-poetry.py --preview --version 1.2.0a2
+      - name: Add path for Poetry
+        run: echo "$HOME/.poetry/bin" >> $GITHUB_PATH
+      - name: install enviroment
+        run: poetry install
+      - name: make html -age
+        run: poetry run make html
+      - name: Deploy to GitHub Pages
+        uses: maxheld83/ghpages@v0.2.1
+        env:
+          BUILD_DIR: docs/_build
+          GH_PAT: ${{ secrets.GH_PAT }}
