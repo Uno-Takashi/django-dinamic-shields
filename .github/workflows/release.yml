@@ -65,9 +65,9 @@ jobs:
           asset_name: ${{ env.ARTIFACT_NAME }}
           asset_content_type: application/x-wheel+zip
       - name: pull builder image
-        run: docker pull macrat/sphinx-pdf
+        run: docker build docs/. -t sphinx_pdf_builder
       - name: build pdf
-        run: docker run --rm --user $UID -v `pwd`/docs:/docs macrat/sphinx-pdf
+        run: docker run --rm -v `pwd`/docs:/docs sphinx_pdf_builder make latexpdf
       - name: upload PDF
         uses: actions/upload-release-asset@v1
         env:
