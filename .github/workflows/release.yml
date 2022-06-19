@@ -64,8 +64,16 @@ jobs:
           asset_path: ${{ env.ARTIFACT_PATHNAME }}
           asset_name: ${{ env.ARTIFACT_NAME }}
           asset_content_type: application/x-wheel+zip
-      - uses: ammaraskar/sphinx-action@master
+      - name: pull builder image
+        run: docker pull macrat/sphinx-pdf
+      - name: build pdf
+        run: docker run --rm --user $UID -v `pwd`:/docs macrat/sphinx-pdf
+      - name: upload PDF
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          docs-folder: "docs/"
-          pre-build-command: "apt-get update -y && apt-get install -y latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended"
-          build-command: "make latexpdf"
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./_build/latex/sphinx.pdf
+          asset_name: manual.pdf
+          asset_content_type: application/pdf
