@@ -27,6 +27,7 @@ jobs:
           cd docs 
           poetry run make html
           cd ../
+          git config --global init.defaultBranch main
       - name: Deploy to GitHub Pages
         uses: maxheld83/ghpages@v0.2.1
         env:
