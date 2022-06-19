@@ -22,6 +22,8 @@ jobs:
         run: echo "$HOME/.poetry/bin" >> $GITHUB_PATH
       - name: install enviroment
         run: poetry install
+      - name: move to docs
+        run: cd docs
       - name: make html -age
         run: poetry run make html
       - name: Deploy to GitHub Pages
