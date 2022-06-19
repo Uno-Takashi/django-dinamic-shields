@@ -35,7 +35,7 @@ Alternatively, you can download and install the .whl file from the [release](htt
 
 Uploaded to the following github pages
 
-[django-dynamic-shields documentation](https://uno-takashi.github.io/django-dynamic-shields/)
+- [django-dynamic-shields documentation](https://uno-takashi.github.io/django-dynamic-shields/)
 
 ## 🎮 Usage
 
