@@ -23,7 +23,7 @@ For example, create a badge with the number of active users today, the number of
 
 ## 💾 Install
 
-Published on [PyPI](https://pypi.org/). It can be installed with the following command.
+Published on [PyPI](https://pypi.org/project/django-dynamic-shields/). It can be installed with the following command.
 
 ```shell
 pip install django-dynamic-shields
@@ -40,6 +40,22 @@ Uploaded to the following github pages
 ## 🎮 Usage
 
 ## ⚒️ Develop
+
+### Preparation
+
+Development requires installation of [Poetry](https://python-poetry.org/).
+
+- [Introduction | Documentation | Poetry - Python dependency management and packaging made easy](https://python-poetry.org/docs/)
+
+[Watchman](https://facebook.github.io/watchman/) is required to run code checks with pyre. Although not required for development, code that fails pyre-check cannot be merged.
+
+- [Installation | Watchman](https://facebook.github.io/watchman/docs/install.html)
+
+### Other
+
+Develop according to [GitHub flow](https://docs.github.com/en/get-started/quickstart/github-flow)
+
+If you have any questions, feel free to ask in the [Q&A](https://github.com/Uno-Takashi/django-dynamic-shields/discussions/categories/q-a)
 
 ## 📝 License
 
