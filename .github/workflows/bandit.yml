@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v3
       - name: run bandit
         run: |
-          bandit nabr -r -o ./bandit.txt -f txt
+          bandit django_dynamic_shields -r -o ./bandit.txt -f txt
       - name: Archive bandit log
         if: always()
         uses: actions/upload-artifact@v2
