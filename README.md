@@ -51,6 +51,12 @@ Development requires installation of [Poetry](https://python-poetry.org/).
 
 - [Installation | Watchman](https://facebook.github.io/watchman/docs/install.html)
 
+After installing the required software, execute the following commands to set up the development environment.
+
+```shell
+poetry install
+```
+
 ### Code Check
 
 This repository uses Github actions for code checking. These actions are automatically executed when you push, but you can also execute them in your local environment before pushing.
@@ -60,6 +66,8 @@ This repository uses Github actions for code checking. These actions are automat
 [![pytest](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pytest.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pytest.yml)
 [![codecov](https://codecov.io/gh/Uno-Takashi/django-dynamic-shields/branch/main/graph/badge.svg?token=3CWnrX8w7n)](https://codecov.io/gh/Uno-Takashi/django-dynamic-shields)
 
+Must pass CI by pytest.
+
 ```shell
 poetry run pytest --cov=django_dynamic_shields --cov-report=xml --workers auto
 ```
@@ -67,6 +75,8 @@ poetry run pytest --cov=django_dynamic_shields --cov-report=xml --workers auto
 #### lizard
 
 [![lizard](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/lizard.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/lizard.yml)
+
+lizard is a tool for measuring CCN. lizard allows us to block merging of overly complex code.
 
 ```shell
 poetry run lizard ./django_dynamic_shields/
@@ -76,6 +86,8 @@ poetry run lizard ./django_dynamic_shields/
 
 [![pyre](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pyre.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pyre.yml)
 
+Pyre is a performant type checker for Python compliant with PEP 484.
+
 ```shell
 poetry run pyre
 ```
@@ -84,6 +96,8 @@ poetry run pyre
 
 [![bandit](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/bandit.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/bandit.yml)
 
+bandit is a static analysis tool for python. It blocks vulnerable code.
+
 ```shell
 poetry run bandit django_dynamic_shields -r 
 ```
@@ -91,6 +105,8 @@ poetry run bandit django_dynamic_shields -r
 #### python-taint
 
 [![pyt](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pyt.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/pyt.yml)
+
+python-taint(pyt) is a static analysis tool for python. It blocks vulnerable code.
 
 ```shell
 poetry run pyt -a D  ./django_dynamic_shields
