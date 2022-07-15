@@ -16,7 +16,7 @@ from .. import (
     coverage_collector as collector,
     log,
 )
-from . import commands, remote_logging, statistics
+from . import commands, frontend_configuration, statistics
 
 LOG: logging.Logger = logging.getLogger(__name__)
 
@@ -26,14 +26,8 @@ def to_absolute_path(given: str, working_directory: Path) -> Path:
     return path if path.is_absolute() else working_directory / path
 
 
-def find_root_path(
-    configuration: configuration_module.Configuration, working_directory: Path
-) -> Path:
-    local_root = configuration.local_root
-    if local_root is not None:
-        return Path(local_root)
-
-    return working_directory
+def find_root_path(local_root: Optional[Path], working_directory: Path) -> Path:
+    return local_root if local_root is not None else working_directory
 
 
 def collect_coverage_for_path(
@@ -74,22 +68,38 @@ def _print_summary(data: List[collector.FileCoverage]) -> None:
         LOG.warning(f"{path}: {coverage_rate}% lines are type checked")
 
 
-def run_coverage(
-    configuration: configuration_module.Configuration,
+def get_module_paths(
+    configuration: frontend_configuration.Base,
     working_directory: str,
-    paths: List[str],
-    print_summary: bool,
-) -> commands.ExitCode:
+    paths: Iterable[str],
+) -> Iterable[Path]:
     working_directory_path = Path(working_directory)
     if paths:
         absolute_paths = [
             to_absolute_path(path, working_directory_path) for path in paths
         ]
     else:
-        absolute_paths = [find_root_path(configuration, working_directory_path)]
-    module_paths = statistics.find_paths_to_parse(configuration, absolute_paths)
+        absolute_paths = [
+            find_root_path(configuration.get_local_root(), working_directory_path)
+        ]
+    return statistics.find_paths_to_parse(
+        absolute_paths, excludes=configuration.get_excludes()
+    )
+
+
+def run_coverage(
+    configuration: frontend_configuration.Base,
+    working_directory: str,
+    paths: List[str],
+    print_summary: bool,
+) -> commands.ExitCode:
+    module_paths = get_module_paths(
+        configuration,
+        working_directory,
+        paths,
+    )
     data = collect_coverage_for_paths(
-        module_paths, working_directory, strict_default=configuration.strict
+        module_paths, working_directory, strict_default=configuration.is_strict()
     )
     if print_summary:
         _print_summary(data)
@@ -99,19 +109,13 @@ def run_coverage(
     return commands.ExitCode.SUCCESS
 
 
-@remote_logging.log_usage(command_name="coverage")
 def run(
     configuration: configuration_module.Configuration,
     coverage_arguments: command_arguments.CoverageArguments,
 ) -> commands.ExitCode:
-    try:
-        return run_coverage(
-            configuration,
-            coverage_arguments.working_directory,
-            coverage_arguments.paths,
-            coverage_arguments.print_summary,
-        )
-    except Exception as error:
-        raise commands.ClientException(
-            f"Exception occurred during pyre coverage: {error}"
-        ) from error
+    return run_coverage(
+        frontend_configuration.OpenSource(configuration),
+        coverage_arguments.working_directory,
+        coverage_arguments.paths,
+        coverage_arguments.print_summary,
+    )

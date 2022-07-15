@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Type, TypeVar
 
 import dataclasses_json
+from pyre_extensions import override
 
 from .. import json_rpc
 from . import async_server_connection
@@ -24,11 +25,13 @@ Value = TypeVar("Value")
 
 
 class ServerNotInitializedError(json_rpc.JSONRPCException):
+    @override
     def error_code(self) -> int:
         return -32002
 
 
 class RequestCancelledError(json_rpc.JSONRPCException):
+    @override
     def error_code(self) -> int:
         return -32800
 
@@ -379,6 +382,8 @@ class ServerCapabilities:
     text_document_sync: Optional[TextDocumentSyncOptions] = None
     hover_provider: Optional[bool] = None
     definition_provider: Optional[bool] = None
+    document_symbol_provider: Optional[bool] = None
+    references_provider: Optional[bool] = None
 
 
 @dataclasses_json.dataclass_json(
@@ -553,6 +558,39 @@ class HoverResponse:
     undefined=dataclasses_json.Undefined.EXCLUDE,
 )
 @dataclasses.dataclass(frozen=True)
+class ReferencesTextDocumentParameters:
+    text_document: TextDocumentIdentifier
+    position: LspPosition
+
+    @staticmethod
+    def from_json_rpc_parameters(
+        parameters: json_rpc.Parameters,
+    ) -> "ReferencesTextDocumentParameters":
+        return _parse_parameters(parameters, target=ReferencesTextDocumentParameters)
+
+
+@dataclasses_json.dataclass_json(
+    letter_case=dataclasses_json.LetterCase.CAMEL,
+    undefined=dataclasses_json.Undefined.EXCLUDE,
+)
+@dataclasses.dataclass(frozen=True)
+class ReferencesResponse:
+    """Contains code location of one reference."""
+
+    path: str
+    range: Range
+
+    def to_lsp_definition_response(
+        self,
+    ) -> "LspDefinitionResponse":
+        return LspDefinitionResponse(uri=self.path, range=self.range.to_lsp_range())
+
+
+@dataclasses_json.dataclass_json(
+    letter_case=dataclasses_json.LetterCase.CAMEL,
+    undefined=dataclasses_json.Undefined.EXCLUDE,
+)
+@dataclasses.dataclass(frozen=True)
 class TypeCoverageTextDocumentParameters:
     text_document: TextDocumentIdentifier
 
@@ -650,3 +688,5 @@ class DocumentSymbolsResponse:
     detail: Optional[str]
     kind: SymbolKind
     range: LspRange
+    selection_range: LspRange
+    children: List["DocumentSymbolsResponse"]

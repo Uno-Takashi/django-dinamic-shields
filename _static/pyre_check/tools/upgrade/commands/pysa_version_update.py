@@ -6,6 +6,8 @@
 import argparse
 import logging
 
+from pyre_extensions import override
+
 from ..configuration import Configuration
 from ..repository import Repository
 from .command import Command
@@ -37,8 +39,6 @@ class PysaVersionUpdate(Command):
         )
 
     @classmethod
-    # pyre-fixme[40]: Non-static method `add_arguments` cannot override a static
-    #  method defined in `Command`.
     def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         super(PysaVersionUpdate, PysaVersionUpdate).add_arguments(parser)
         parser.set_defaults(command=cls.from_arguments)
@@ -47,6 +47,7 @@ class PysaVersionUpdate(Command):
             "--no-commit", action="store_true", help="Keep changes in working state."
         )
 
+    @override
     def run(self) -> None:
         global_configuration = Configuration.find_project_configuration()
 

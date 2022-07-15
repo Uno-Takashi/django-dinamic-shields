@@ -6,6 +6,8 @@
 import argparse
 import logging
 
+from pyre_extensions import override
+
 from ..configuration import Configuration
 from ..repository import Repository
 from .command import CommandArguments, ErrorSource, ErrorSuppressingCommand
@@ -40,8 +42,6 @@ class FixmeAll(ErrorSuppressingCommand):
         )
 
     @classmethod
-    # pyre-fixme[40]: Non-static method `add_arguments` cannot override a static
-    #  method defined in `ErrorSuppressingCommand`.
     def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         super(FixmeAll, cls).add_arguments(parser)
         parser.set_defaults(command=cls.from_arguments)
@@ -57,6 +57,7 @@ class FixmeAll(ErrorSuppressingCommand):
             type=ErrorSource,
         )
 
+    @override
     def run(self) -> None:
         project_configuration = Configuration.find_project_configuration()
         configurations = Configuration.gather_local_configurations()

@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: pyre-check
-Version: 0.9.13
+Version: 0.9.15
 Summary: A performant type checker for Python
 Home-page: https://pyre-check.org/
 Author: Facebook
@@ -19,8 +19,9 @@ Classifier: Operating System :: MacOS
 Classifier: Operating System :: POSIX :: Linux
 Classifier: Programming Language :: Python
 Classifier: Programming Language :: Python :: 3
-Classifier: Programming Language :: Python :: 3.5
-Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
 Classifier: Topic :: Software Development
 Classifier: Typing :: Typed
 Requires-Python: >=3.6

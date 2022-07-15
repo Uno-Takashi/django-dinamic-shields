@@ -7,6 +7,7 @@ import dataclasses
 import platform
 from typing import Dict, Generic, Optional, TypeVar
 
+from .. import dataclasses_merge
 from .exceptions import InvalidConfiguration
 
 T = TypeVar("T")
@@ -20,9 +21,10 @@ PLATFORM_MAPPING = {
 }
 
 
+@dataclasses_merge.dataclass_merge
 @dataclasses.dataclass(frozen=True)
 class PlatformAware(Generic[T]):
-    default: T
+    default: Optional[T] = None
     windows: Optional[T] = None
     macos: Optional[T] = None
     linux: Optional[T] = None
@@ -42,11 +44,7 @@ class PlatformAware(Generic[T]):
                     f"{PLATFORM_MAPPING.values()} but got: `{invalid_keys}`."
                 )
 
-            default: T = (
-                value["default"]
-                if "default" in value
-                else value[sorted(value.keys())[0]]
-            )
+            default = value.get("default", None)
             return PlatformAware(
                 default=default,
                 windows=value["windows"] if "windows" in value else None,
@@ -58,7 +56,7 @@ class PlatformAware(Generic[T]):
             return PlatformAware(default=value)
 
     @staticmethod
-    def merge(
+    def merge_optional(
         base: "Optional[PlatformAware[U]]", override: "Optional[PlatformAware[U]]"
     ) -> "Optional[PlatformAware[U]]":
         if base is None:
@@ -66,25 +64,19 @@ class PlatformAware(Generic[T]):
         elif override is None:
             return base
         else:
-            windows = override.windows
-            macos = override.macos
-            linux = override.linux
-            # pyre-ignore[7]: Pyre wasn't able to infer the right return type
-            return PlatformAware(
-                default=override.default,
-                windows=windows if windows is not None else base.windows,
-                macos=macos if macos is not None else base.macos,
-                linux=linux if linux is not None else base.linux,
-            )
+            # pyre-ignore[16]: Pyre does not understand `dataclass_merge`
+            return PlatformAware.merge(base, override)
 
-    def get(self, key: Optional[str] = None) -> T:
+    def get(self, key: Optional[str] = None) -> Optional[T]:
         if key is None:
             key = PLATFORM_MAPPING[platform.system()]
         value: T = self.__getattribute__(key)
         return value if value is not None else self.default
 
     def to_json(self) -> Dict[str, T]:
-        result = {"default": self.default}
+        result: Dict[str, T] = {}
+        if self.default is not None:
+            result["default"] = self.default
         if self.windows is not None:
             result["windows"] = self.windows
         if self.linux is not None:

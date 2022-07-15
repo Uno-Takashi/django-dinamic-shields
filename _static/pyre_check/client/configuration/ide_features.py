@@ -8,6 +8,7 @@ from typing import ClassVar, Dict, Optional
 
 import dataclasses_json
 
+from .. import dataclasses_merge
 from . import exceptions
 
 
@@ -15,25 +16,19 @@ from . import exceptions
     letter_case=dataclasses_json.LetterCase.SNAKE,
     undefined=dataclasses_json.Undefined.EXCLUDE,
 )
+@dataclasses_merge.dataclass_merge
 @dataclasses.dataclass(frozen=True)
 class IdeFeatures:
     hover_enabled: Optional[bool] = None
     DEFAULT_HOVER_ENABLED: ClassVar[bool] = False
     go_to_definition_enabled: Optional[bool] = None
     DEFAULT_GO_TO_DEFINITION_ENABLED: ClassVar[bool] = False
-
-    @staticmethod
-    def merge(base: "IdeFeatures", override: "IdeFeatures") -> "IdeFeatures":
-        override_hover_enabled = override.hover_enabled
-        override_go_to_definition_enabled = override.go_to_definition_enabled
-        return IdeFeatures(
-            hover_enabled=override_hover_enabled
-            if override_hover_enabled is not None
-            else base.hover_enabled,
-            go_to_definition_enabled=override_go_to_definition_enabled
-            if override_go_to_definition_enabled is not None
-            else base.go_to_definition_enabled,
-        )
+    find_symbols_enabled: Optional[bool] = None
+    DEFAULT_FIND_SYMBOLS_ENABLED: ClassVar[bool] = False
+    find_all_references_enabled: Optional[bool] = None
+    DEFAULT_FIND_ALL_REFERENCES_ENABLED: ClassVar[bool] = False
+    expression_level_coverage_enabled: Optional[bool] = None
+    DEFAULT_EXPRESSION_LEVEL_COVERAGE_ENABLED: ClassVar[bool] = False
 
     @staticmethod
     def merge_optional(
@@ -43,6 +38,7 @@ class IdeFeatures:
             return base
         if base is None:
             return override
+        # pyre-ignore[16]: Pyre does not understand `dataclass_merge`
         return IdeFeatures.merge(base, override)
 
     @staticmethod
@@ -72,6 +68,23 @@ class IdeFeatures:
                 if self.go_to_definition_enabled is not None
                 else {}
             ),
+            **(
+                {"find_symbols_enabled": self.find_symbols_enabled}
+                if self.find_symbols_enabled is not None
+                else {}
+            ),
+            **(
+                {"find_all_references_enabled": self.find_all_references_enabled}
+                if self.find_all_references_enabled is not None
+                else {}
+            ),
+            **(
+                {
+                    "expression_level_coverage_enabled": self.expression_level_coverage_enabled
+                }
+                if self.expression_level_coverage_enabled is not None
+                else {}
+            ),
         }
 
     def is_hover_enabled(self) -> bool:
@@ -86,4 +99,25 @@ class IdeFeatures:
             self.go_to_definition_enabled
             if self.go_to_definition_enabled is not None
             else self.DEFAULT_GO_TO_DEFINITION_ENABLED
+        )
+
+    def is_find_symbols_enabled(self) -> bool:
+        return (
+            self.find_symbols_enabled
+            if self.find_symbols_enabled is not None
+            else self.DEFAULT_FIND_SYMBOLS_ENABLED
+        )
+
+    def is_find_all_references_enabled(self) -> bool:
+        return (
+            self.find_all_references_enabled
+            if self.find_all_references_enabled is not None
+            else self.DEFAULT_FIND_ALL_REFERENCES_ENABLED
+        )
+
+    def is_expression_level_coverage_enabled(self) -> bool:
+        return (
+            self.expression_level_coverage_enabled
+            if self.expression_level_coverage_enabled is not None
+            else self.DEFAULT_EXPRESSION_LEVEL_COVERAGE_ENABLED
         )

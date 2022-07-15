@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from .. import configuration as configuration_module, error as error_module
-from . import commands, query, remote_logging, server_connection
+from . import commands, frontend_configuration, query, server_connection
 
 
 LOG: logging.Logger = logging.getLogger(__name__)
@@ -60,15 +60,12 @@ def parse_validation_errors_response(
     return parse_validation_errors(response_payload)
 
 
-@remote_logging.log_usage(command_name="validate-models")
-def run(
-    configuration: configuration_module.Configuration, output: str
+def run_validate_models(
+    configuration: frontend_configuration.Base, output: str
 ) -> commands.ExitCode:
     socket_path = server_connection.get_default_socket_path(
-        project_root=Path(configuration.project_root),
-        relative_local_root=Path(configuration.relative_local_root)
-        if configuration.relative_local_root
-        else None,
+        project_root=configuration.get_global_root(),
+        relative_local_root=configuration.get_relative_local_root(),
     )
     try:
         response = query.query_server(socket_path, "validate_taint_models()")
@@ -83,7 +80,12 @@ def run(
             "Please run `pyre` first to set up a server."
         )
         return commands.ExitCode.SERVER_NOT_FOUND
-    except Exception as error:
-        raise commands.ClientException(
-            f"Exception occurred during model validation: {error}"
-        ) from error
+
+
+def run(
+    configuration: configuration_module.Configuration, output: str
+) -> commands.ExitCode:
+    return run_validate_models(
+        frontend_configuration.OpenSource(configuration),
+        output,
+    )

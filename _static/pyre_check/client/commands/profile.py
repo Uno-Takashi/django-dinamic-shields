@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from typing_extensions import Final
 
 from .. import command_arguments, configuration as configuration_module
-from . import backend_arguments, commands, remote_logging
+from . import backend_arguments, commands, frontend_configuration
 
 
 LOG: logging.Logger = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ class StatisticsOverTime:
             if divider in line:
                 time, size_component = line.split(divider)
                 size_in_megabytes = int(size_component[:-2])
-                size_in_bytes = size_in_megabytes * (10 ** 6)
+                size_in_bytes = size_in_megabytes * (10**6)
                 self._data.append((time, size_in_bytes))
 
     def graph_total_shared_memory_size_over_time(self) -> None:
@@ -147,11 +147,11 @@ class TableStatistics:
     def sort_by_value(items: List[Tuple[str, str]]) -> None:
         def parse(number: str) -> float:
             if number[-1] == "G":
-                return float(number[:-1]) * (10 ** 9)
+                return float(number[:-1]) * (10**9)
             if number[-1] == "M":
-                return float(number[:-1]) * (10 ** 6)
+                return float(number[:-1]) * (10**6)
             if number[-1] == "K":
-                return float(number[:-1]) * (10 ** 3)
+                return float(number[:-1]) * (10**3)
             return float(number)
 
         items.sort(key=lambda x: parse(x[1]), reverse=True)
@@ -201,6 +201,7 @@ def _get_server_log(log_directory: Path) -> Path:
 def _collect_memory_statistics_over_time(log_directory: Path) -> StatisticsOverTime:
     server_log = _get_server_log(log_directory)
     extracted = StatisticsOverTime()
+    # lint-ignore: NoUnsafeFilesystemRule
     with open(server_log) as server_log_file:
         for line in server_log_file.readlines():
             extracted.add(line)
@@ -323,11 +324,10 @@ def to_taint(events: Sequence[Event]) -> Dict[str, int]:
     return result
 
 
-def print_individual_table_sizes(
-    configuration: configuration_module.Configuration,
-) -> None:
-    server_log = _get_server_log(Path(configuration.log_directory))
+def print_individual_table_sizes(log_directory: Path) -> None:
+    server_log = _get_server_log(log_directory)
     extracted = TableStatistics()
+    # lint-ignore: NoUnsafeFilesystemRule
     with open(str(server_log)) as server_log_file:
         for line in server_log_file.readlines():
             extracted.add(line)
@@ -350,84 +350,65 @@ def print_individual_table_sizes(
     print(combined)
 
 
-def print_total_shared_memory_size_over_time(
-    configuration: configuration_module.Configuration,
-) -> None:
-    memory_over_time = _collect_memory_statistics_over_time(
-        Path(configuration.log_directory)
-    ).to_json()
+def print_total_shared_memory_size_over_time(log_directory: Path) -> None:
+    memory_over_time = _collect_memory_statistics_over_time(log_directory).to_json()
     print(memory_over_time)
 
 
-def print_total_shared_memory_size_over_time_graph(
-    configuration: configuration_module.Configuration,
-) -> None:
-    statistics = _collect_memory_statistics_over_time(Path(configuration.log_directory))
+def print_total_shared_memory_size_over_time_graph(log_directory: Path) -> None:
+    statistics = _collect_memory_statistics_over_time(log_directory)
     statistics.graph_total_shared_memory_size_over_time()
 
 
-def print_trace_event(
-    configuration: configuration_module.Configuration,
-) -> None:
-    events = _read_profiling_events(Path(configuration.log_directory))
+def print_trace_event(log_directory: Path) -> None:
+    events = _read_profiling_events(log_directory)
     print(json.dumps(to_traceevents(events)))
 
 
-def print_cold_start_phases(
-    configuration: configuration_module.Configuration,
-) -> None:
-    events = _read_profiling_events(Path(configuration.log_directory))
+def print_cold_start_phases(log_directory: Path) -> None:
+    events = _read_profiling_events(log_directory)
     print(json.dumps(to_cold_start_phases(events), indent=2))
 
 
-def print_incremental_updates(
-    configuration: configuration_module.Configuration,
-) -> None:
-    events = _read_profiling_events(Path(configuration.log_directory))
+def print_incremental_updates(log_directory: Path) -> None:
+    events = _read_profiling_events(log_directory)
     print(json.dumps(to_incremental_updates(events), indent=2))
 
 
-def print_taint(
-    configuration: configuration_module.Configuration,
-) -> None:
-    events = _read_profiling_events(Path(configuration.log_directory))
+def print_taint(log_directory: Path) -> None:
+    events = _read_profiling_events(log_directory)
     print(json.dumps(to_taint(events), indent=2))
 
 
 def run_profile(
-    configuration: configuration_module.Configuration,
+    configuration: frontend_configuration.Base,
     output: command_arguments.ProfileOutput,
 ) -> commands.ExitCode:
+    log_directory = configuration.get_log_directory()
     if output == command_arguments.ProfileOutput.INDIVIDUAL_TABLE_SIZES:
-        print_individual_table_sizes(configuration)
+        print_individual_table_sizes(log_directory)
     elif output == command_arguments.ProfileOutput.TOTAL_SHARED_MEMORY_SIZE_OVER_TIME:
-        print_total_shared_memory_size_over_time(configuration)
+        print_total_shared_memory_size_over_time(log_directory)
     elif (
         output
         == command_arguments.ProfileOutput.TOTAL_SHARED_MEMORY_SIZE_OVER_TIME_GRAPH
     ):
-        print_total_shared_memory_size_over_time_graph(configuration)
+        print_total_shared_memory_size_over_time_graph(log_directory)
     elif output == command_arguments.ProfileOutput.TRACE_EVENT:
-        print_trace_event(configuration)
+        print_trace_event(log_directory)
     elif output == command_arguments.ProfileOutput.COLD_START_PHASES:
-        print_cold_start_phases(configuration)
+        print_cold_start_phases(log_directory)
     elif output == command_arguments.ProfileOutput.INCREMENTAL_UPDATES:
-        print_incremental_updates(configuration)
+        print_incremental_updates(log_directory)
     elif output == command_arguments.ProfileOutput.TAINT:
-        print_taint(configuration)
+        print_taint(log_directory)
     else:
         raise RuntimeError(f"Unrecognized output format: {output}")
     return commands.ExitCode.SUCCESS
 
 
-@remote_logging.log_usage(command_name="profile")
 def run(
     configuration: configuration_module.Configuration,
     output: command_arguments.ProfileOutput,
 ) -> commands.ExitCode:
-    try:
-        return run_profile(configuration, output)
-    except Exception as error:
-        raise commands.ClientException(
-            f"Exception occurred during profile: {error}"
-        ) from error
+    return run_profile(frontend_configuration.OpenSource(configuration), output)

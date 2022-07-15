@@ -10,6 +10,7 @@ import re
 import shutil
 import sys
 import textwrap
+import traceback
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -120,7 +121,7 @@ def _run_incremental_command(
             no_start=no_start_server,
             start_arguments=start_arguments,
         ),
-    )
+    ).exit_code
 
 
 def _run_default_command(
@@ -286,6 +287,20 @@ def _check_open_source_version(
     default=None,
     hidden=True,
 )
+@click.option(
+    "--enable-find-symbols/--no-enable-find-symbols",
+    is_flag=True,
+    help="Whether Pyre should support document-symbols in the IDE.",
+    default=None,
+    hidden=True,
+)
+@click.option(
+    "--enable-find-all-references/--no-enable-all-references",
+    is_flag=True,
+    help="Whether Pyre should support find-all-references in the IDE.",
+    default=None,
+    hidden=True,
+)
 @click.option("--number-of-workers", type=int, help="Number of parallel workers to use")
 def pyre(
     context: click.Context,
@@ -315,6 +330,8 @@ def pyre(
     number_of_workers: Optional[int],
     enable_hover: Optional[bool],
     enable_go_to_definition: Optional[bool],
+    enable_find_symbols: Optional[bool],
+    enable_find_all_references: Optional[bool],
 ) -> None:
     arguments = command_arguments.CommandArguments(
         local_configuration=None,
@@ -355,6 +372,8 @@ def pyre(
         enable_hover=enable_hover,
         use_buck2=None,
         enable_go_to_definition=enable_go_to_definition,
+        enable_find_symbols=enable_find_symbols,
+        enable_find_all_references=enable_find_all_references,
     )
     context.ensure_object(dict)
     context.obj["arguments"] = arguments
@@ -372,7 +391,13 @@ def pyre(
     "--no-verify",
     is_flag=True,
     default=False,
-    help="Do not verify models for the taint analysis.",
+    help="Do not verify models or DSL model queries for the taint analysis.",
+)
+@click.option(
+    "--verify-dsl",
+    is_flag=True,
+    default=False,
+    help="Verify DSL model queries for the taint analysis.",
 )
 @click.option(
     "--version",
@@ -390,8 +415,6 @@ def pyre(
     type=str,
     help="Dump the call graph in the given file.",
 )
-# pyre-fixme[56]: Pyre was not able to infer the type of argument `os.path.abspath`
-#  to decorator factory `click.option`.
 @click.option("--repository-root", type=os.path.abspath)
 @click.option(
     "--rule",
@@ -437,6 +460,7 @@ def analyze(
     analysis: str,
     taint_models_path: Iterable[str],
     no_verify: bool,
+    verify_dsl: bool,
     version: bool,
     save_results_to: Optional[str],
     dump_call_graph: Optional[str],
@@ -478,6 +502,7 @@ def analyze(
             maximum_tito_depth=maximum_tito_depth,
             maximum_trace_length=maximum_trace_length,
             no_verify=no_verify,
+            verify_dsl=verify_dsl,
             output=command_argument.output,
             repository_root=repository_root,
             rule=list(rule),
@@ -823,8 +848,6 @@ def query(context: click.Context, query: str) -> int:
 
 
 @pyre.command()
-# pyre-fixme[56]: Pyre was not able to infer the type of argument `os.path.abspath`
-#  to decorator factory `click.option`.
 @click.option(
     "--output-file",
     type=os.path.abspath,
@@ -1031,7 +1054,7 @@ def start(
 
 
 @pyre.command()
-@click.argument("filter_paths", type=str, nargs=-1)
+@click.argument("directories", type=str, nargs=-1)
 @click.option(
     "--log-results",
     is_flag=True,
@@ -1053,13 +1076,15 @@ def start(
 @click.pass_context
 def statistics(
     context: click.Context,
-    filter_paths: Iterable[str],
+    directories: Iterable[str],
     log_results: bool,
     aggregate: bool,
     print_summary: bool,
 ) -> int:
     """
     Collect various syntactic metrics on type coverage.
+
+    If no directories are specified, defaults to counting all sources in the project.
     """
     command_argument: command_arguments.CommandArguments = context.obj["arguments"]
     configuration = configuration_module.create_configuration(
@@ -1068,7 +1093,7 @@ def statistics(
     return commands.statistics.run(
         configuration,
         command_arguments.StatisticsArguments(
-            filter_paths=list(filter_paths),
+            directories=list(directories),
             log_identifier=command_argument.log_identifier,
             log_results=log_results,
             aggregate=aggregate,
@@ -1198,6 +1223,7 @@ def main(argv: List[str] = sys.argv[1:]) -> int:
             return_code = error.exit_code
         except Exception as error:
             LOG.error(str(error))
+            traceback.print_exc()
             return_code = commands.ExitCode.FAILURE
     return return_code
 

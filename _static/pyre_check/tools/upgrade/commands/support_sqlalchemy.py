@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Sequence
 import libcst
 from libcst.codemod import CodemodContext
 from libcst.codemod.visitors import AddImportsVisitor
+from pyre_extensions import override
 
 from ..commands.command import CommandArguments, ErrorSuppressingCommand
 from ..configuration import Configuration
@@ -62,8 +63,6 @@ class SupportSqlalchemy(ErrorSuppressingCommand):
         )
 
     @classmethod
-    # pyre-fixme[40]: Non-static method `add_arguments` cannot override a static
-    #  method defined in `ErrorSuppressingCommand`.
     def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         super(SupportSqlalchemy, cls).add_arguments(parser)
         parser.set_defaults(command=cls.from_arguments)
@@ -140,6 +139,7 @@ class SupportSqlalchemy(ErrorSuppressingCommand):
             modified_tree = AddImportsVisitor(context).transform_module(source)
             path.write_text(modified_tree.code)
 
+    @override
     def run(self) -> None:
         local_configuration_path = self._local_root / ".pyre_configuration.local"
         local_configuration = Configuration(local_configuration_path)

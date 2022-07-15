@@ -8,6 +8,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from pyre_extensions import override
+
 from typing_extensions import Final
 
 from ..configuration import Configuration
@@ -45,8 +47,6 @@ class ExpandTargetCoverage(ErrorSuppressingCommand):
         )
 
     @classmethod
-    # pyre-fixme[40]: Non-static method `add_arguments` cannot override a static
-    #  method defined in `ErrorSuppressingCommand`.
     def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         super(ExpandTargetCoverage, cls).add_arguments(parser)
         parser.set_defaults(command=cls.from_arguments)
@@ -62,6 +62,7 @@ class ExpandTargetCoverage(ErrorSuppressingCommand):
             help="Ignore all errors in a file if fixme count exceeds threshold.",
         )
 
+    @override
     def run(self) -> None:
         local_root = self._local_configuration
         local_root = Path(local_root) if local_root else Path.cwd()

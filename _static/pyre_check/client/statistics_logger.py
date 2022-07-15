@@ -10,7 +10,7 @@ import platform
 import subprocess
 import time
 from enum import Enum
-from typing import Dict, Optional
+from typing import Mapping, Optional
 
 from .configuration import Configuration  # noqa
 
@@ -20,10 +20,12 @@ LOG: logging.Logger = logging.getLogger(__name__)
 
 class LoggerCategory(Enum):
     ANNOTATION_COUNTS = "perfpipe_pyre_annotation_counts"
+    ANNOTATION_ISSUES = "perfpipe_pyre_annotation_issues"
     BUCK_EVENTS = "perfpipe_pyre_buck_events"
     ERROR_STATISTICS = "perfpipe_pyre_error_statistics"
     FBCODE_COVERAGE = "perfpipe_pyre_fbcode_coverage"
-    FIXME_COUNTS = "perfpipe_pyre_fixme_counts"
+    SUPPRESSION_COUNTS = "perfpipe_pyre_fixme_counts"
+    SUPPRESSION_ISSUES = "perfpipe_pyre_fixme_issues"
     LSP_EVENTS = "perfpipe_pyre_lsp_events"
     PERFORMANCE = "perfpipe_pyre_performance"
     QUALITY_ANALYZER = "perfpipe_pyre_quality_analyzer"
@@ -35,8 +37,8 @@ class LoggerCategory(Enum):
 def log(
     category: LoggerCategory,
     logger: str,
-    integers: Optional[Dict[str, int]] = None,
-    normals: Optional[Dict[str, Optional[str]]] = None,
+    integers: Optional[Mapping[str, Optional[int]]] = None,
+    normals: Optional[Mapping[str, Optional[str]]] = None,
 ) -> None:
     try:
         statistics = {
@@ -49,31 +51,7 @@ def log(
             },
         }
         statistics = json.dumps(statistics).encode("ascii", "strict")
+        # lint-ignore: NoUnsafeExecRule
         subprocess.run([logger, category.value], input=statistics)
     except Exception:
         LOG.warning("Unable to log using `%s`", logger)
-
-
-def log_with_configuration(
-    category: LoggerCategory,
-    configuration: Configuration,
-    integers: Optional[Dict[str, int]] = None,
-    normals: Optional[Dict[str, Optional[str]]] = None,
-) -> None:
-    logger = configuration.logger
-    if logger is None:
-        return
-    log(
-        category=category,
-        logger=logger,
-        integers=integers,
-        normals={
-            **(normals or {}),
-            "project_root": configuration.project_root,
-            "root": configuration.relative_local_root,
-            "version": configuration.get_version_hash_respecting_override()
-            or "unversioned",
-            "oncall": configuration.oncall or "",
-            "configuration": str(configuration),
-        },
-    )

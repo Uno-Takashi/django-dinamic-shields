@@ -39,12 +39,12 @@ from .. import (
     timer,
     version,
 )
-from ..commands.language_server_protocol import DocumentSymbolsResponse
 from ..coverage_collector import coverage_collector_for_module, CoveredAndUncoveredLines
 from . import (
     async_server_connection as connection,
     backend_arguments,
     commands,
+    frontend_configuration,
     incremental,
     language_server_protocol as lsp,
     location_lookup,
@@ -53,11 +53,9 @@ from . import (
     server_event,
     start,
     statistics,
+    subscription,
 )
-from .find_symbols import (
-    UnparseableError,
-    parse_source_and_collect_symbols,
-)
+from .find_symbols import parse_source_and_collect_symbols, UnparseableError
 
 LOG: logging.Logger = logging.getLogger(__name__)
 
@@ -118,10 +116,10 @@ class PyreServerStartOptions:
     def read_from(
         command_argument: command_arguments.CommandArguments, base_directory: Path
     ) -> "PyreServerStartOptions":
-        configuration = configuration_module.create_configuration(
-            command_argument, base_directory
+        configuration = frontend_configuration.OpenSource(
+            configuration_module.create_configuration(command_argument, base_directory)
         )
-        binary_location = configuration.get_binary_respecting_override()
+        binary_location = configuration.get_binary_location(download_if_needed=True)
         if binary_location is None:
             raise configuration_module.InvalidConfiguration(
                 "Cannot locate a Pyre binary to run."
@@ -156,12 +154,12 @@ class PyreServerStartOptions:
             )
 
         return PyreServerStartOptions(
-            binary=binary_location,
+            binary=str(binary_location),
             server_identifier=start.get_server_identifier(configuration),
             start_arguments=start_arguments,
-            ide_features=configuration.ide_features,
-            strict_default=configuration.strict,
-            excludes=configuration.excludes,
+            ide_features=configuration.get_ide_features(),
+            strict_default=configuration.is_strict(),
+            excludes=configuration.get_excludes(),
         )
 
 
@@ -206,6 +204,8 @@ def process_initialize_request(
             {
                 "hover_provider": ide_features.is_hover_enabled(),
                 "definition_provider": ide_features.is_go_to_definition_enabled(),
+                "document_symbol_provider": ide_features.is_find_symbols_enabled(),
+                "references_provider": ide_features.is_find_all_references_enabled(),
             }
             if ide_features is not None
             else {}
@@ -287,13 +287,26 @@ async def try_initialize(
         )
         await lsp.write_json_rpc(
             output_channel,
-            # pyre-fixme[16]: Pyre doesn't understand `dataclasses_json`
-            json_rpc.SuccessResponse(id=request_id, result=result.to_dict()),
+            json_rpc.SuccessResponse(
+                id=request_id,
+                activity_key=request.activity_key,
+                # pyre-fixme[16]: Pyre doesn't understand `dataclasses_json`
+                result=result.to_dict(),
+            ),
         )
 
         initialized_notification = await lsp.read_json_rpc(input_channel)
         if initialized_notification.method == "shutdown":
-            await _wait_for_exit(input_channel, output_channel)
+            try:
+                await _wait_for_exit(input_channel, output_channel)
+            except (ConnectionError, json_rpc.ParseError) as error:
+                # These errors can happen when the connection gets dropped unilaterally
+                # from the language client, which causes issue when we try to access
+                # the I/O channel.
+                # Since the language client has explicitly notified us it wants to
+                # shutdown at this point, it should be safe to just ignore the error
+                # and terminate the language server immediately.
+                LOG.info(f"Initialization connection dropped by LSP client: {error}")
             return InitializationExit()
         elif initialized_notification.method != "initialized":
             actual_message = json.dumps(initialized_notification.json())
@@ -312,6 +325,7 @@ async def try_initialize(
             output_channel,
             json_rpc.ErrorResponse(
                 id=request.id if request is not None else None,
+                activity_key=request.activity_key if request is not None else None,
                 code=json_rpc_error.error_code(),
                 message=str(json_rpc_error),
                 data={"retry": False},
@@ -334,6 +348,8 @@ async def _read_lsp_request(
             json_rpc.ErrorResponse(
                 # pyre-ignore[16] - refinement doesn't work here for some reason
                 id=message.id if message is not None else None,
+                # pyre-ignore[16]
+                activity_key=message.activity_key if message is not None else None,
                 code=json_rpc_error.error_code(),
                 message=str(json_rpc_error),
             ),
@@ -405,11 +421,13 @@ LocationTypeLookup = location_lookup.LocationLookup[TypeInfo]
 class TypeCoverageQuery:
     id: Union[int, str, None]
     path: Path
+    activity_key: Optional[Dict[str, object]] = None
 
 
 @dataclasses.dataclass(frozen=True)
 class TypesQuery:
     path: Path
+    activity_key: Optional[Dict[str, object]] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -417,6 +435,7 @@ class DefinitionLocationQuery:
     id: Union[int, str, None]
     path: Path
     position: lsp.Position
+    activity_key: Optional[Dict[str, object]] = None
 
 
 @dataclasses_json.dataclass_json(
@@ -428,7 +447,26 @@ class DefinitionLocationResponse:
     response: List[lsp.PyreDefinitionResponse]
 
 
-QueryTypes = Union[TypeCoverageQuery, TypesQuery, DefinitionLocationQuery]
+@dataclasses.dataclass(frozen=True)
+class ReferencesQuery:
+    id: Union[int, str, None]
+    path: Path
+    position: lsp.Position
+    activity_key: Optional[Dict[str, object]] = None
+
+
+@dataclasses_json.dataclass_json(
+    letter_case=dataclasses_json.LetterCase.CAMEL,
+    undefined=dataclasses_json.Undefined.EXCLUDE,
+)
+@dataclasses.dataclass(frozen=True)
+class ReferencesResponse:
+    response: List[lsp.ReferencesResponse]
+
+
+QueryTypes = Union[
+    TypeCoverageQuery, TypesQuery, DefinitionLocationQuery, ReferencesQuery
+]
 
 
 @dataclasses.dataclass
@@ -635,7 +673,9 @@ class PyreServer:
             )
 
     async def process_open_request(
-        self, parameters: lsp.DidOpenTextDocumentParameters
+        self,
+        parameters: lsp.DidOpenTextDocumentParameters,
+        activity_key: Optional[Dict[str, object]] = None,
     ) -> None:
         document_path = parameters.text_document.document_uri().to_file_path()
         if document_path is None:
@@ -643,7 +683,9 @@ class PyreServer:
                 f"Document URI is not a file: {parameters.text_document.uri}"
             )
         self.state.opened_documents.add(document_path)
-        self.state.query_state.queries.put_nowait(TypesQuery(document_path))
+        self.state.query_state.queries.put_nowait(
+            TypesQuery(document_path, activity_key)
+        )
         LOG.info(f"File opened: {document_path}")
 
         # Attempt to trigger a background Pyre server start on each file open
@@ -666,7 +708,9 @@ class PyreServer:
             LOG.warning(f"Trying to close an un-opened file: {document_path}")
 
     async def process_did_save_request(
-        self, parameters: lsp.DidSaveTextDocumentParameters
+        self,
+        parameters: lsp.DidSaveTextDocumentParameters,
+        activity_key: Optional[Dict[str, object]] = None,
     ) -> None:
         document_path = parameters.text_document.document_uri().to_file_path()
         if document_path is None:
@@ -677,7 +721,9 @@ class PyreServer:
         if document_path not in self.state.opened_documents:
             return
 
-        self.state.query_state.queries.put_nowait(TypesQuery(document_path))
+        self.state.query_state.queries.put_nowait(
+            TypesQuery(document_path, activity_key)
+        )
 
         # Attempt to trigger a background Pyre server start on each file save
         if not self.pyre_manager.is_task_running():
@@ -687,6 +733,7 @@ class PyreServer:
         self,
         parameters: lsp.HoverTextDocumentParameters,
         request_id: Union[int, str, None],
+        activity_key: Optional[Dict[str, object]] = None,
     ) -> None:
         """Always respond to a hover request even for non-tracked paths.
 
@@ -702,7 +749,9 @@ class PyreServer:
         if document_path not in self.state.opened_documents:
             response = lsp.HoverResponse.empty()
         else:
-            self.state.query_state.queries.put_nowait(TypesQuery(document_path))
+            self.state.query_state.queries.put_nowait(
+                TypesQuery(document_path, activity_key)
+            )
             response = self.state.query_state.hover_response_for_position(
                 Path(document_path), parameters.position
             )
@@ -711,6 +760,7 @@ class PyreServer:
             self.output_channel,
             json_rpc.SuccessResponse(
                 id=request_id,
+                activity_key=activity_key,
                 # pyre-ignore[16]: Pyre does not understand
                 # `dataclasses_json`.
                 result=response.to_dict(),
@@ -721,6 +771,7 @@ class PyreServer:
         self,
         parameters: lsp.TypeCoverageTextDocumentParameters,
         request_id: Union[int, str, None],
+        activity_key: Optional[Dict[str, object]] = None,
     ) -> None:
         document_path = parameters.text_document.document_uri().to_file_path()
         if document_path is None:
@@ -728,13 +779,16 @@ class PyreServer:
                 f"Document URI is not a file: {parameters.text_document.uri}"
             )
         await self.state.query_state.queries.put(
-            TypeCoverageQuery(id=request_id, path=document_path)
+            TypeCoverageQuery(
+                id=request_id, activity_key=activity_key, path=document_path
+            )
         )
 
     async def process_definition_request(
         self,
         parameters: lsp.DefinitionTextDocumentParameters,
         request_id: Union[int, str, None],
+        activity_key: Optional[Dict[str, object]] = None,
     ) -> None:
         document_path = parameters.text_document.document_uri().to_file_path()
         if document_path is None:
@@ -747,6 +801,7 @@ class PyreServer:
                 self.output_channel,
                 json_rpc.SuccessResponse(
                     id=request_id,
+                    activity_key=activity_key,
                     # pyre-ignore[16]: Pyre does not understand
                     # `dataclasses_json`.
                     result=lsp.LspDefinitionResponse.schema().dump([], many=True),
@@ -757,6 +812,7 @@ class PyreServer:
         self.state.query_state.queries.put_nowait(
             DefinitionLocationQuery(
                 id=request_id,
+                activity_key=activity_key,
                 path=document_path,
                 position=parameters.position.to_pyre_position(),
             )
@@ -766,6 +822,7 @@ class PyreServer:
         self,
         parameters: lsp.DocumentSymbolsTextDocumentParameters,
         request_id: Union[int, str, None],
+        activity_key: Optional[Dict[str, object]] = None,
     ) -> None:
         document_path = parameters.text_document.document_uri().to_file_path()
         if document_path is None:
@@ -791,11 +848,63 @@ class PyreServer:
             self.output_channel,
             json_rpc.SuccessResponse(
                 id=request_id,
+                activity_key=activity_key,
                 # pyre-ignore[16]: Pyre does not understand
                 # `dataclasses_json`.
-                result=DocumentSymbolsResponse.schema().dump(symbols, many=True),
+                result=[s.to_dict() for s in symbols],
             ),
         )
+
+    async def process_find_all_references_request(
+        self,
+        parameters: lsp.ReferencesTextDocumentParameters,
+        request_id: Union[int, str, None],
+        activity_key: Optional[Dict[str, object]] = None,
+    ) -> None:
+        document_path = parameters.text_document.document_uri().to_file_path()
+        if document_path is None:
+            raise json_rpc.InvalidRequestError(
+                f"Document URI is not a file: {parameters.text_document.uri}"
+            )
+
+        if document_path not in self.state.opened_documents:
+            await lsp.write_json_rpc(
+                self.output_channel,
+                json_rpc.SuccessResponse(
+                    id=request_id,
+                    activity_key=activity_key,
+                    # pyre-ignore[16]: Pyre does not understand
+                    # `dataclasses_json`.
+                    result=lsp.LspDefinitionResponse.schema().dump([], many=True),
+                ),
+            )
+            return
+
+        self.state.query_state.queries.put_nowait(
+            ReferencesQuery(
+                id=request_id,
+                activity_key=activity_key,
+                path=document_path,
+                position=parameters.position.to_pyre_position(),
+            )
+        )
+
+    async def process_shutdown_request(self, request_id: Union[int, str, None]) -> int:
+        try:
+            await lsp.write_json_rpc(
+                self.output_channel,
+                json_rpc.SuccessResponse(id=request_id, activity_key=None, result=None),
+            )
+            return await self.wait_for_exit()
+        except (ConnectionError, json_rpc.ParseError) as error:
+            # These errors can happen when the connection gets dropped unilaterally
+            # from the language client, which causes issue when we try to access the
+            # I/O channel.
+            # Since the language client has explicitly notified us it wants to
+            # shutdown at this point, it should be safe to just ignore the error and
+            # terminate the language server immediately.
+            LOG.info(f"Connection dropped by LSP client: {error}")
+            return commands.ExitCode.SUCCESS
 
     async def _run(self) -> int:
         while True:
@@ -807,11 +916,7 @@ class PyreServer:
                 if request.method == "exit":
                     return commands.ExitCode.FAILURE
                 elif request.method == "shutdown":
-                    await lsp.write_json_rpc(
-                        self.output_channel,
-                        json_rpc.SuccessResponse(id=request.id, result=None),
-                    )
-                    return await self.wait_for_exit()
+                    return await self.process_shutdown_request(request.id)
                 elif request.method == "textDocument/definition":
                     parameters = request.parameters
                     if parameters is None:
@@ -823,6 +928,7 @@ class PyreServer:
                             parameters
                         ),
                         request.id,
+                        request.activity_key,
                     )
                 elif request.method == "textDocument/didOpen":
                     parameters = request.parameters
@@ -833,7 +939,8 @@ class PyreServer:
                     await self.process_open_request(
                         lsp.DidOpenTextDocumentParameters.from_json_rpc_parameters(
                             parameters
-                        )
+                        ),
+                        request.activity_key,
                     )
                 elif request.method == "textDocument/didClose":
                     parameters = request.parameters
@@ -855,7 +962,8 @@ class PyreServer:
                     await self.process_did_save_request(
                         lsp.DidSaveTextDocumentParameters.from_json_rpc_parameters(
                             parameters
-                        )
+                        ),
+                        request.activity_key,
                     )
                 elif request.method == "textDocument/hover":
                     parameters = request.parameters
@@ -868,6 +976,7 @@ class PyreServer:
                             parameters
                         ),
                         request.id,
+                        request.activity_key,
                     )
                 elif request.method == "textDocument/typeCoverage":
                     parameters = request.parameters
@@ -880,18 +989,33 @@ class PyreServer:
                             parameters
                         ),
                         request.id,
+                        request.activity_key,
                     )
                 elif request.method == "textDocument/documentSymbol":
                     parameters = request.parameters
                     if parameters is None:
                         raise json_rpc.InvalidRequestError(
-                            "Mising Parameters for documetn symbols"
+                            "Mising Parameters for document symbols"
                         )
                     await self.process_document_symbols_request(
                         lsp.DocumentSymbolsTextDocumentParameters.from_json_rpc_parameters(
                             parameters
                         ),
                         request.id,
+                        request.activity_key,
+                    )
+                elif request.method == "textDocument/references":
+                    parameters = request.parameters
+                    if parameters is None:
+                        raise json_rpc.InvalidRequestError(
+                            "Missing parameters for find all references"
+                        )
+                    await self.process_find_all_references_request(
+                        lsp.ReferencesTextDocumentParameters.from_json_rpc_parameters(
+                            parameters
+                        ),
+                        request.id,
+                        request.activity_key,
                     )
                 elif request.id is not None:
                     raise lsp.RequestCancelledError("Request not supported yet")
@@ -979,76 +1103,6 @@ async def _start_pyre_server(
         detail = traceback.format_exc()
         LOG.error(f"{detail}")
         return OtherStartFailure(message=message, detail=detail)
-
-
-@dataclasses.dataclass(frozen=True)
-class TypeErrorSubscription:
-    errors: List[error.Error] = dataclasses.field(default_factory=list)
-
-
-def _parse_type_error_subscription(response: object) -> TypeErrorSubscription:
-    return TypeErrorSubscription(
-        errors=incremental.parse_type_error_response_json(["TypeErrors", response])
-    )
-
-
-@dataclasses.dataclass(frozen=True)
-class StatusUpdateSubscription:
-    kind: str
-
-
-def _parse_status_update_subscription(response: object) -> StatusUpdateSubscription:
-    if not isinstance(response, list) or len(response) == 0:
-        raise incremental.InvalidServerResponse(
-            f"Status update subscription must be a nonempty list. Got {response}"
-        )
-    kind = response[0]
-    if not isinstance(kind, str):
-        raise incremental.InvalidServerResponse(
-            f"Response kind of a status update must be a string. Got {response}"
-        )
-    return StatusUpdateSubscription(kind=kind)
-
-
-SubscriptionBody = Union[TypeErrorSubscription, StatusUpdateSubscription]
-
-
-@dataclasses.dataclass(frozen=True)
-class SubscriptionResponse:
-    name: str
-    body: SubscriptionBody
-
-
-def parse_subscription_response(response: str) -> SubscriptionResponse:
-    try:
-        response_json = json.loads(response)
-        # The response JSON is expected to have the following forms:
-        # `{"name": "foo", "body": ["TypeErrors", [error_json, ...]]}`
-        # `{"name": "foo", "body": ["StatusUpdate", ["message_kind", ...]]}`
-        if isinstance(response_json, dict):
-            name = response_json.get("name", None)
-            body = response_json.get("body", None)
-            if (
-                name is not None
-                and body is not None
-                and isinstance(body, list)
-                and len(body) > 1
-            ):
-                tag = body[0]
-                if tag == "TypeErrors":
-                    return SubscriptionResponse(
-                        name=name, body=_parse_type_error_subscription(body[1])
-                    )
-                elif tag == "StatusUpdate":
-                    return SubscriptionResponse(
-                        name=name, body=_parse_status_update_subscription(body[1])
-                    )
-        raise incremental.InvalidServerResponse(
-            f"Unexpected JSON subscription from server: {response_json}"
-        )
-    except json.JSONDecodeError as decode_error:
-        message = f"Cannot parse subscription as JSON: {decode_error}"
-        raise incremental.InvalidServerResponse(message) from decode_error
 
 
 def type_error_to_diagnostic(type_error: error.Error) -> lsp.Diagnostic:
@@ -1266,6 +1320,7 @@ class PyreQueryHandler(connection.BackgroundTask):
                 self.client_output_channel,
                 json_rpc.SuccessResponse(
                     id=query.id,
+                    activity_key=query.activity_key,
                     # pyre-ignore[16]: Pyre does not understand
                     # `dataclasses_json`.
                     result=type_coverage_result.to_dict(),
@@ -1295,6 +1350,7 @@ class PyreQueryHandler(connection.BackgroundTask):
             self.client_output_channel,
             json_rpc.SuccessResponse(
                 id=query.id,
+                activity_key=query.activity_key,
                 # pyre-ignore[16]: Pyre does not understand
                 # `dataclasses_json`.
                 result=lsp.LspDefinitionResponse.schema().dump(
@@ -1304,12 +1360,44 @@ class PyreQueryHandler(connection.BackgroundTask):
             ),
         )
 
+    async def _handle_find_all_references_query(
+        self, query: ReferencesQuery, socket_path: Path
+    ) -> None:
+        path_string = f"'{query.path}'"
+        query_text = (
+            f"find_references(path={path_string},"
+            f" line={query.position.line}, column={query.position.character})"
+        )
+        find_all_references_response = await self._query_and_interpret_response(
+            query_text, socket_path, ReferencesResponse
+        )
+        reference_locations = (
+            [
+                response.to_lsp_definition_response()
+                for response in find_all_references_response.response
+            ]
+            if find_all_references_response is not None
+            else []
+        )
+        await lsp.write_json_rpc(
+            self.client_output_channel,
+            json_rpc.SuccessResponse(
+                id=query.id,
+                activity_key=query.activity_key,
+                # pyre-ignore[16]: Pyre does not understand
+                # `dataclasses_json`.
+                result=lsp.LspDefinitionResponse.schema().dump(
+                    reference_locations,
+                    many=True,
+                ),
+            ),
+        )
+
     async def _run(self, server_start_options: "PyreServerStartOptions") -> None:
         start_arguments = server_start_options.start_arguments
-        local_root = start_arguments.base_arguments.relative_local_root
         socket_path = server_connection.get_default_socket_path(
             project_root=Path(start_arguments.base_arguments.global_root),
-            relative_local_root=Path(local_root) if local_root else None,
+            relative_local_root=start_arguments.base_arguments.relative_local_root,
         )
         strict_default = server_start_options.strict_default
         type_queries_enabled = (
@@ -1327,6 +1415,8 @@ class PyreQueryHandler(connection.BackgroundTask):
                 )
             elif isinstance(query, DefinitionLocationQuery):
                 await self._query_and_send_definition_location(query, socket_path)
+            elif isinstance(query, ReferencesQuery):
+                await self._handle_find_all_references_query(query, socket_path)
 
     def read_server_start_options(self) -> "PyreServerStartOptions":
         try:
@@ -1410,6 +1500,10 @@ async def _write_notification(
     )
 
 
+class PyreServerShutdown(Exception):
+    pass
+
+
 class PyreServerHandler(connection.BackgroundTask):
     server_start_options_reader: PyreServerStartOptionsReader
     remote_logging: Optional[backend_arguments.RemoteLogging]
@@ -1475,7 +1569,7 @@ class PyreServerHandler(connection.BackgroundTask):
 
     def update_type_errors(self, type_errors: Sequence[error.Error]) -> None:
         LOG.info(
-            "Refereshing type errors received from Pyre server. "
+            "Refreshing type errors received from Pyre server. "
             f"Total number of type errors is {len(type_errors)}."
         )
         incremental.log_error_statistics(
@@ -1503,20 +1597,20 @@ class PyreServerHandler(connection.BackgroundTask):
         self.server_state.last_diagnostic_update_timer.reset()
 
     async def handle_type_error_subscription(
-        self, type_error_subscription: TypeErrorSubscription
+        self, type_error_subscription: subscription.TypeErrors
     ) -> None:
         await self.clear_type_errors_for_client()
         self.update_type_errors(type_error_subscription.errors)
         await self.show_type_errors_to_client()
         await self.log_and_show_status_message_to_client(
             "Pyre has completed an incremental check and is currently "
-            "watching on futher source changes.",
+            "watching on further source changes.",
             short_message="Pyre Ready",
             level=lsp.MessageType.INFO,
         )
 
     async def handle_status_update_subscription(
-        self, status_update_subscription: StatusUpdateSubscription
+        self, status_update_subscription: subscription.StatusUpdate
     ) -> None:
         await self.clear_type_errors_for_client()
         if status_update_subscription.kind == "Rebuilding":
@@ -1532,13 +1626,22 @@ class PyreServerHandler(connection.BackgroundTask):
                 level=lsp.MessageType.WARNING,
             )
 
-    async def _handle_subscription_body(
-        self, subscription_body: SubscriptionBody
+    async def handle_error_subscription(
+        self, error_subscription: subscription.Error
     ) -> None:
-        if isinstance(subscription_body, TypeErrorSubscription):
+        message = error_subscription.message
+        LOG.info(f"Received error from subscription channel: {message}")
+        raise PyreServerShutdown(message)
+
+    async def _handle_subscription_body(
+        self, subscription_body: subscription.Body
+    ) -> None:
+        if isinstance(subscription_body, subscription.TypeErrors):
             await self.handle_type_error_subscription(subscription_body)
-        elif isinstance(subscription_body, StatusUpdateSubscription):
+        elif isinstance(subscription_body, subscription.StatusUpdate):
             await self.handle_status_update_subscription(subscription_body)
+        elif isinstance(subscription_body, subscription.Error):
+            await self.handle_error_subscription(subscription_body)
 
     async def _subscribe_to_type_error(
         self,
@@ -1559,7 +1662,7 @@ class PyreServerHandler(connection.BackgroundTask):
             async with _read_server_response(
                 server_input_channel
             ) as raw_subscription_response:
-                subscription_response = parse_subscription_response(
+                subscription_response = subscription.Response.parse(
                     raw_subscription_response
                 )
                 if subscription_name == subscription_response.name:
@@ -1611,10 +1714,9 @@ class PyreServerHandler(connection.BackgroundTask):
     async def _run(self, server_start_options: PyreServerStartOptions) -> None:
         server_identifier = server_start_options.server_identifier
         start_arguments = server_start_options.start_arguments
-        local_root = start_arguments.base_arguments.relative_local_root
         socket_path = server_connection.get_default_socket_path(
             project_root=Path(start_arguments.base_arguments.global_root),
-            relative_local_root=Path(local_root) if local_root else None,
+            relative_local_root=start_arguments.base_arguments.relative_local_root,
         )
 
         connection_timer = timer.Timer()
@@ -1756,20 +1858,32 @@ class PyreServerHandler(connection.BackgroundTask):
             self.server_start_options_reader, self.remote_logging
         )
         session_timer = timer.Timer()
+        error_message: Optional[str] = None
         try:
             LOG.info(f"Starting Pyre server from configuration: {server_start_options}")
             await self._run(server_start_options)
-        except Exception:
+        except asyncio.CancelledError:
+            error_message = "Explicit termination request"
+            raise
+        except PyreServerShutdown as error:
+            error_message = f"Pyre server shutdown: {error}"
+        except BaseException:
+            error_message = traceback.format_exc()
+            raise
+        finally:
             _log_lsp_event(
                 remote_logging=self.remote_logging,
                 event=LSPEvent.DISCONNECTED,
                 integers={"duration": int(session_timer.stop_in_millisecond())},
                 normals={
                     **self._auxiliary_logging_info(server_start_options),
-                    "exception": traceback.format_exc(),
+                    **(
+                        {"exception": error_message}
+                        if error_message is not None
+                        else {}
+                    ),
                 },
             )
-            raise
 
 
 async def run_persistent(
@@ -1860,8 +1974,8 @@ def run(
                 remote_logging,
             )
         )
-    except Exception as error:
-        error_message = str(error)
+    except Exception:
+        error_message = traceback.format_exc()
         return 1
     finally:
         _log_lsp_event(

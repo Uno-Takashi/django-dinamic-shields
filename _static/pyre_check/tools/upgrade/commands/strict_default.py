@@ -8,6 +8,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from pyre_extensions import override
+
 from ....client.find_directories import (
     CONFIGURATION_FILE,
     find_global_and_local_root,
@@ -18,7 +20,6 @@ from ..configuration import Configuration
 from ..filesystem import LocalMode, path_exists
 from ..repository import Repository
 from .command import CommandArguments, ErrorSource, ErrorSuppressingCommand
-
 
 LOG: logging.Logger = logging.getLogger(__name__)
 
@@ -66,8 +67,6 @@ class StrictDefault(ErrorSuppressingCommand):
         )
 
     @classmethod
-    # pyre-fixme[40]: Non-static method `add_arguments` cannot override a static
-    #  method defined in `ErrorSuppressingCommand`.
     def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         super(StrictDefault, cls).add_arguments(parser)
         parser.set_defaults(command=cls.from_arguments)
@@ -103,6 +102,7 @@ class StrictDefault(ErrorSuppressingCommand):
             set_dependencies=False,
         )
 
+    @override
     def run(self) -> None:
         configuration_path = _get_configuration_path(self._local_configuration)
         if configuration_path is None:

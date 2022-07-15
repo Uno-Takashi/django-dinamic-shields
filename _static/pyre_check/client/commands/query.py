@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TextIO
 
 from .. import configuration as configuration_module, log
-from . import commands, remote_logging, server_connection
+from . import commands, frontend_configuration, server_connection
 
 
 LOG: logging.Logger = logging.getLogger(__name__)
@@ -36,6 +36,9 @@ Possible queries:
     Allows skipping certain decorators when inlining.
   - less_or_equal(T1, T2)
     Returns whether T1 is a subtype of T2.
+  - model_query(path, 'model_query_name')
+    Returns in JSON a list of all models generated from the query with the name
+    `model_query_name` in the directory `path`.
   - path_of_module(module)
     Gives an absolute path for `module`.
   - save_server_state('path')
@@ -106,15 +109,12 @@ def query_server(socket_path: Path, query_text: str) -> Response:
         return _receive_query_response(input_channel)
 
 
-@remote_logging.log_usage(command_name="query")
-def run(
-    configuration: configuration_module.Configuration, query_text: str
+def run_query(
+    configuration: frontend_configuration.Base, query_text: str
 ) -> commands.ExitCode:
     socket_path = server_connection.get_default_socket_path(
-        project_root=Path(configuration.project_root),
-        relative_local_root=Path(configuration.relative_local_root)
-        if configuration.relative_local_root
-        else None,
+        project_root=configuration.get_global_root(),
+        relative_local_root=configuration.get_relative_local_root(),
     )
     try:
         if query_text == "help":
@@ -130,7 +130,9 @@ def run(
             "Please run `pyre` first to set up a server."
         )
         return commands.ExitCode.SERVER_NOT_FOUND
-    except Exception as error:
-        raise commands.ClientException(
-            f"Exception occurred during pyre query: {error}"
-        ) from error
+
+
+def run(
+    configuration: configuration_module.Configuration, query_text: str
+) -> commands.ExitCode:
+    return run_query(frontend_configuration.OpenSource(configuration), query_text)

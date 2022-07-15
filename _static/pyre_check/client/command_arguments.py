@@ -71,6 +71,9 @@ class CommandArguments:
     number_of_workers: Optional[int] = None
     enable_hover: Optional[bool] = None
     enable_go_to_definition: Optional[bool] = None
+    enable_find_symbols: Optional[bool] = None
+    enable_find_all_references: Optional[bool] = None
+    enable_expression_level_coverage: Optional[bool] = None
     use_buck2: Optional[bool] = None
 
 
@@ -144,7 +147,7 @@ class RageArguments:
 
 @dataclass(frozen=True)
 class StatisticsArguments:
-    filter_paths: List[str] = field(default_factory=list)
+    directories: List[str] = field(default_factory=list)
     log_identifier: Optional[str] = None
     log_results: bool = False
     aggregate: bool = False
@@ -171,6 +174,7 @@ class AnalyzeArguments:
     maximum_tito_depth: Optional[int] = None
     maximum_trace_length: Optional[int] = None
     no_verify: bool = False
+    verify_dsl: bool = False
     output: str = TEXT
     repository_root: Optional[str] = None
     rule: List[int] = field(default_factory=list)

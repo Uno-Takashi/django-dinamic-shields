@@ -8,6 +8,8 @@ import logging
 from pathlib import Path
 from typing import List
 
+from pyre_extensions import override
+
 from ..configuration import Configuration
 from ..filesystem import path_exists
 from ..repository import Repository
@@ -47,8 +49,6 @@ class GlobalVersionUpdate(Command):
         )
 
     @classmethod
-    # pyre-fixme[40]: Non-static method `add_arguments` cannot override a static
-    #  method defined in `Command`.
     def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         super(GlobalVersionUpdate, GlobalVersionUpdate).add_arguments(parser)
         parser.set_defaults(command=cls.from_arguments)
@@ -114,6 +114,7 @@ class GlobalVersionUpdate(Command):
             ignore_failures=True,
         )
 
+    @override
     def run(self) -> None:
         global_configuration = Configuration.find_project_configuration()
 
