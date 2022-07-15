@@ -1,7 +1,6 @@
 import asyncio
 from json.decoder import JSONDecodeError
 import json
-from concurrent.futures import Executor, ThreadPoolExecutor, ProcessPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
 from enum import Enum
@@ -10,12 +9,14 @@ from multiprocessing import Manager, freeze_support
 import os
 from pathlib import Path
 from pathspec.patterns.gitwildmatch import GitWildMatchPatternError
+import platform
 import re
 import signal
 import sys
 import tokenize
 import traceback
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     Generator,
@@ -39,7 +40,7 @@ from mypy_extensions import mypyc_attr
 from black.const import DEFAULT_LINE_LENGTH, DEFAULT_INCLUDES, DEFAULT_EXCLUDES
 from black.const import STDIN_PLACEHOLDER
 from black.nodes import STARS, syms, is_simple_decorator_expression
-from black.nodes import is_string_token
+from black.nodes import is_string_token, is_number_token
 from black.lines import Line, EmptyLineTracker
 from black.linegen import transform_line, LineGenerator, LN
 from black.comments import normalize_fmt_off
@@ -75,6 +76,9 @@ from blib2to3.pytree import Node, Leaf
 from blib2to3.pgen2 import token
 
 from _black_version import version as __version__
+
+if TYPE_CHECKING:
+    from concurrent.futures import Executor
 
 COMPILED = Path(__file__).suffix in (".pyd", ".so")
 
@@ -381,7 +385,10 @@ def validate_regex(
 )
 @click.version_option(
     version=__version__,
-    message=f"%(prog)s, %(version)s (compiled: {'yes' if COMPILED else 'no'})",
+    message=(
+        f"%(prog)s, %(version)s (compiled: {'yes' if COMPILED else 'no'})\n"
+        f"Python ({platform.python_implementation()}) {platform.python_version()}"
+    ),
 )
 @click.argument(
     "src",
@@ -763,6 +770,8 @@ def reformat_many(
     workers: Optional[int],
 ) -> None:
     """Reformat multiple files using a ProcessPoolExecutor."""
+    from concurrent.futures import Executor, ThreadPoolExecutor, ProcessPoolExecutor
+
     executor: Executor
     loop = asyncio.get_event_loop()
     worker_count = workers if workers is not None else DEFAULT_WORKERS
@@ -804,7 +813,7 @@ async def schedule_formatting(
     mode: Mode,
     report: "Report",
     loop: asyncio.AbstractEventLoop,
-    executor: Executor,
+    executor: "Executor",
 ) -> None:
     """Run formatting of `sources` in parallel using the provided `executor`.
 
@@ -1163,10 +1172,10 @@ def format_str(src_contents: str, *, mode: Mode) -> str:
 def _format_str_once(src_contents: str, *, mode: Mode) -> str:
     src_node = lib2to3_parse(src_contents.lstrip(), mode.target_versions)
     dst_contents = []
-    future_imports = get_future_imports(src_node)
     if mode.target_versions:
         versions = mode.target_versions
     else:
+        future_imports = get_future_imports(src_node)
         versions = detect_target_versions(src_node, future_imports=future_imports)
 
     normalize_fmt_off(src_node, preview=mode.preview)
@@ -1236,8 +1245,7 @@ def get_features_used(  # noqa: C901
             if value_head in {'f"', 'F"', "f'", "F'", "rf", "fr", "RF", "FR"}:
                 features.add(Feature.F_STRINGS)
 
-        elif n.type == token.NUMBER:
-            assert isinstance(n, Leaf)
+        elif is_number_token(n):
             if "_" in n.value:
                 features.add(Feature.NUMERIC_UNDERSCORES)
 
@@ -1291,6 +1299,25 @@ def get_features_used(  # noqa: C901
             and n.children[3].type == syms.testlist_star_expr
         ):
             features.add(Feature.ANN_ASSIGN_EXTENDED_RHS)
+
+        elif (
+            n.type == syms.except_clause
+            and len(n.children) >= 2
+            and n.children[1].type == token.STAR
+        ):
+            features.add(Feature.EXCEPT_STAR)
+
+        elif n.type in {syms.subscriptlist, syms.trailer} and any(
+            child.type == syms.star_expr for child in n.children
+        ):
+            features.add(Feature.VARIADIC_GENERICS)
+
+        elif (
+            n.type == syms.tname_star
+            and len(n.children) == 3
+            and n.children[2].type == syms.star_expr
+        ):
+            features.add(Feature.VARIADIC_GENERICS)
 
     return features
 
@@ -1435,7 +1462,9 @@ def patch_click() -> None:
     else:
         modules.append(core)
     try:
-        from click import _unicodefun
+        # Removed in Click 8.1.0 and newer; we keep this around for users who have
+        # older versions installed.
+        from click import _unicodefun  # type: ignore
     except ImportError:
         pass
     else:
