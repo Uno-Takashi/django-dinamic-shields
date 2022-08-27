@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: Django
-Version: 3.2.14
+Version: 3.2.15
 Summary: A high-level Python Web framework that encourages rapid development and clean, pragmatic design.
 Home-page: https://www.djangoproject.com/
 Author: Django Software Foundation
@@ -32,6 +32,9 @@ Classifier: Topic :: Internet :: WWW/HTTP :: WSGI
 Classifier: Topic :: Software Development :: Libraries :: Application Frameworks
 Classifier: Topic :: Software Development :: Libraries :: Python Modules
 Requires-Python: >=3.6
+License-File: LICENSE
+License-File: LICENSE.python
+License-File: AUTHORS
 Requires-Dist: asgiref (<4,>=3.3.2)
 Requires-Dist: pytz
 Requires-Dist: sqlparse (>=0.2.2)
