@@ -13,7 +13,7 @@ import shutil
 import site
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import field
 from logging import Logger
 from pathlib import Path
 from typing import (
@@ -31,7 +31,7 @@ from typing import (
 
 import psutil
 
-from .. import command_arguments, dataclasses_merge, find_directories
+from .. import command_arguments, dataclasses_merge, find_directories, identifiers
 from ..filesystem import expand_global_root, expand_relative_path
 from ..find_directories import (
     BINARY_NAME,
@@ -42,6 +42,7 @@ from ..find_directories import (
 )
 from . import (
     exceptions,
+    extension,
     ide_features as ide_features_module,
     platform_aware,
     python_version as python_version_module,
@@ -69,40 +70,6 @@ def _expand_all_globs(patterns: Iterable[str]) -> List[str]:
     return [expanded for pattern in patterns for expanded in _expand_glob(pattern)]
 
 
-@dataclasses.dataclass
-class ExtensionElement:
-    suffix: str
-    include_suffix_in_module_qualifier: bool
-
-    def command_line_argument(self) -> str:
-        options = ""
-        if self.include_suffix_in_module_qualifier:
-            options = "$" + "include_suffix_in_module_qualifier"
-        return self.suffix + options
-
-    @staticmethod
-    def from_json(json: Union[str, Dict[str, Union[str, bool]]]) -> "ExtensionElement":
-        if isinstance(json, str):
-            return ExtensionElement(
-                suffix=json, include_suffix_in_module_qualifier=False
-            )
-        elif isinstance(json, dict):
-            include_suffix_in_module_qualifier = False
-            if "include_suffix_in_module_qualifier" in json:
-                value = json["include_suffix_in_module_qualifier"]
-                if isinstance(value, bool):
-                    include_suffix_in_module_qualifier = value
-            if "suffix" in json:
-                suffix = json["suffix"]
-                if isinstance(suffix, str):
-                    return ExtensionElement(
-                        suffix=suffix,
-                        include_suffix_in_module_qualifier=include_suffix_in_module_qualifier,
-                    )
-
-        raise exceptions.InvalidConfiguration(f"Invalid extension element: {json}")
-
-
 def get_default_site_roots() -> List[str]:
     try:
         return [site.getusersitepackages()] + site.getsitepackages()
@@ -119,14 +86,14 @@ def get_default_site_roots() -> List[str]:
 
 
 @dataclasses_merge.dataclass_merge
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class PartialConfiguration:
     binary: Optional[str] = None
     buck_mode: Optional[platform_aware.PlatformAware[str]] = field(
         default=None,
         metadata={"merge_policy": platform_aware.PlatformAware.merge_optional},
     )
-    do_not_ignore_errors_in: Sequence[str] = field(
+    only_check_paths: Sequence[str] = field(
         default_factory=list,
         metadata={"merge_policy": dataclasses_merge.Policy.PREPEND},
     )
@@ -135,7 +102,7 @@ class PartialConfiguration:
         default_factory=list,
         metadata={"merge_policy": dataclasses_merge.Policy.PREPEND},
     )
-    extensions: Sequence[ExtensionElement] = field(
+    extensions: Sequence[extension.Element] = field(
         default_factory=list,
         metadata={"merge_policy": dataclasses_merge.Policy.PREPEND},
     )
@@ -185,10 +152,6 @@ class PartialConfiguration:
     version_hash: Optional[str] = None
 
     @staticmethod
-    def _get_depreacted_map() -> Dict[str, str]:
-        return {"do_not_check": "ignore_all_errors"}
-
-    @staticmethod
     def _get_extra_keys() -> Set[str]:
         return {
             "create_open_source_configuration",
@@ -218,12 +181,14 @@ class PartialConfiguration:
                 find_symbols_enabled=arguments.enable_find_symbols,
                 find_all_references_enabled=arguments.enable_find_all_references,
                 expression_level_coverage_enabled=arguments.enable_expression_level_coverage,
+                consume_unsaved_changes_enabled=arguments.enable_consume_unsaved_changes,
             )
             if arguments.enable_hover is not None
             or arguments.enable_go_to_definition is not None
             or arguments.enable_find_symbols is not None
             or arguments.enable_find_all_references is not None
             or arguments.enable_expression_level_coverage is not None
+            or arguments.enable_consume_unsaved_changes is not None
             else None
         )
         return PartialConfiguration(
@@ -231,7 +196,7 @@ class PartialConfiguration:
             buck_mode=platform_aware.PlatformAware.from_json(
                 arguments.buck_mode, "buck_mode"
             ),
-            do_not_ignore_errors_in=arguments.do_not_ignore_errors_in,
+            only_check_paths=arguments.only_check_paths,
             dot_pyre_directory=arguments.dot_pyre_directory,
             excludes=arguments.exclude,
             extensions=[],
@@ -446,8 +411,8 @@ class PartialConfiguration:
                     ),
                     "buck_mode",
                 ),
-                do_not_ignore_errors_in=ensure_string_list(
-                    configuration_json, "do_not_ignore_errors_in"
+                only_check_paths=ensure_string_list(
+                    configuration_json, "only_check_paths"
                 ),
                 dot_pyre_directory=Path(dot_pyre_directory)
                 if dot_pyre_directory is not None
@@ -456,8 +421,7 @@ class PartialConfiguration:
                     configuration_json, "exclude", allow_single_string=True
                 ),
                 extensions=[
-                    # pyre-fixme[6]: we did not fully verify the type of `json`
-                    ExtensionElement.from_json(json)
+                    extension.Element.from_json(json)
                     for json in ensure_list(configuration_json, "extensions")
                 ],
                 ide_features=ide_features,
@@ -497,17 +461,7 @@ class PartialConfiguration:
                 version_hash=ensure_option_type(configuration_json, "version", str),
             )
 
-            # Check for deprecated and unused keys
-            for (
-                deprecated_key,
-                replacement_key,
-            ) in PartialConfiguration._get_depreacted_map().items():
-                if deprecated_key in configuration_json:
-                    configuration_json.pop(deprecated_key)
-                    LOG.warning(
-                        f"Configuration file uses deprecated item `{deprecated_key}`. "
-                        f"Please migrate to its replacement `{replacement_key}`"
-                    )
+            # Check for unused keys
             extra_keys = PartialConfiguration._get_extra_keys()
             for unrecognized_key in configuration_json:
                 if unrecognized_key not in extra_keys:
@@ -553,9 +507,8 @@ class PartialConfiguration:
         return PartialConfiguration(
             binary=binary,
             buck_mode=self.buck_mode,
-            do_not_ignore_errors_in=[
-                expand_relative_path(root, path)
-                for path in self.do_not_ignore_errors_in
+            only_check_paths=[
+                expand_relative_path(root, path) for path in self.only_check_paths
             ],
             dot_pyre_directory=self.dot_pyre_directory,
             excludes=self.excludes,
@@ -600,16 +553,16 @@ def merge_partial_configurations(
         raise exceptions.InvalidConfiguration(str(error))
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class Configuration:
     project_root: str
     dot_pyre_directory: Path
 
     binary: Optional[str] = None
     buck_mode: Optional[platform_aware.PlatformAware[str]] = None
-    do_not_ignore_errors_in: Sequence[str] = field(default_factory=list)
+    only_check_paths: Sequence[str] = field(default_factory=list)
     excludes: Sequence[str] = field(default_factory=list)
-    extensions: Sequence[ExtensionElement] = field(default_factory=list)
+    extensions: Sequence[extension.Element] = field(default_factory=list)
     ide_features: Optional[ide_features_module.IdeFeatures] = None
     ignore_all_errors: Sequence[str] = field(default_factory=list)
     isolation_prefix: Optional[str] = None
@@ -645,7 +598,7 @@ class Configuration:
     ) -> "Configuration":
         search_path = partial_configuration.search_path
         ignore_all_errors = partial_configuration.ignore_all_errors
-        do_not_ignore_errors_in = partial_configuration.do_not_ignore_errors_in
+        only_check_paths = partial_configuration.only_check_paths
 
         return Configuration(
             project_root=str(project_root),
@@ -654,9 +607,9 @@ class Configuration:
             ),
             binary=partial_configuration.binary,
             buck_mode=partial_configuration.buck_mode,
-            do_not_ignore_errors_in=[
+            only_check_paths=[
                 expand_global_root(path, global_root=str(project_root))
-                for path in do_not_ignore_errors_in
+                for path in only_check_paths
             ],
             excludes=partial_configuration.excludes,
             extensions=partial_configuration.extensions,
@@ -690,6 +643,18 @@ class Configuration:
                 partial_configuration.use_buck2, default=False
             ),
             version_hash=partial_configuration.version_hash,
+        )
+
+    @property
+    def project_identifier(self) -> str:
+        """
+        Note: it is important that this identifier, which is part of what determines
+        the socket path for connecting to an ocaml daemon, is entirely determined based
+        on fields that come from the command arguments.
+        """
+        return identifiers.get_project_identifier(
+            Path(self.project_root),
+            self.relative_local_root,
         )
 
     @property
@@ -730,7 +695,7 @@ class Configuration:
             "dot_pyre_directory": str(self.dot_pyre_directory),
             **({"binary": binary} if binary is not None else {}),
             **({"buck_mode": buck_mode.to_json()} if buck_mode is not None else {}),
-            "do_not_ignore_errors_in": list(self.do_not_ignore_errors_in),
+            "only_check_paths": list(self.only_check_paths),
             "excludes": list(self.excludes),
             "extensions": list(self.extensions),
             "ignore_all_errors": list(self.ignore_all_errors),
@@ -954,16 +919,23 @@ class Configuration:
             )
         return self.ide_features.is_expression_level_coverage_enabled()
 
+    def is_consume_unsaved_changes_enabled(self) -> bool:
+        if self.ide_features is None:
+            return (
+                ide_features_module.IdeFeatures.DEFAULT_CONSUME_UNSAVED_CHANGES_ENABLED
+            )
+        return self.ide_features.is_consume_unsaved_changes_enabled()
+
     def get_valid_extension_suffixes(self) -> List[str]:
         vaild_extensions = []
-        for extension in self.extensions:
-            if not extension.suffix.startswith("."):
+        for element in self.extensions:
+            if not element.suffix.startswith("."):
                 LOG.warning(
                     "Filtering out extension which does not start with `.`: "
-                    f"`{extension.suffix}`"
+                    f"`{element.suffix}`"
                 )
             else:
-                vaild_extensions.append(extension.command_line_argument())
+                vaild_extensions.append(element.command_line_argument())
         return vaild_extensions
 
     def get_python_version(self) -> python_version_module.PythonVersion:

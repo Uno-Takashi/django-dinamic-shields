@@ -16,29 +16,29 @@ from typing import Union
 
 from .. import command_arguments, configuration as configuration_module, json_rpc, log
 from . import (
-    async_server_connection as connection,
     commands,
+    connections,
     frontend_configuration,
     language_server_protocol as lsp,
     start,
 )
 from .persistent import (
     _log_lsp_event,
-    _read_lsp_request,
     _wait_for_exit,
     InitializationExit,
     InitializationFailure,
     InitializationSuccess,
     LSPEvent,
     process_initialize_request,
+    read_lsp_request,
 )
 
 LOG: logging.Logger = logging.getLogger(__name__)
 
 
 async def try_initialize(
-    input_channel: connection.TextReader,
-    output_channel: connection.TextWriter,
+    input_channel: connections.AsyncTextReader,
+    output_channel: connections.AsyncTextWriter,
 ) -> Union[InitializationSuccess, InitializationFailure, InitializationExit]:
     """
     Read an LSP message from the input channel and try to initialize an LSP
@@ -80,7 +80,6 @@ async def try_initialize(
         result = process_initialize_request(initialize_parameters)
         await lsp.write_json_rpc(
             output_channel,
-            # pyre-fixme[16]: Pyre doesn't understand `dataclasses_json`
             json_rpc.SuccessResponse(id=request_id, result=result.to_dict()),
         )
 
@@ -115,27 +114,27 @@ async def try_initialize(
 
 class PysaServer:
     # I/O Channels
-    input_channel: connection.TextReader
-    output_channel: connection.TextWriter
+    input_channel: connections.AsyncTextReader
+    output_channel: connections.AsyncTextWriter
 
     # Immutable States
     client_capabilities: lsp.ClientCapabilities
 
     def __init__(
         self,
-        input_channel: connection.TextReader,
-        output_channel: connection.TextWriter,
+        input_channel: connections.AsyncTextReader,
+        output_channel: connections.AsyncTextWriter,
         client_capabilities: lsp.ClientCapabilities,
         pyre_arguments: start.Arguments,
         binary_location: str,
-        server_identifier: str,
+        project_identifier: str,
     ) -> None:
         self.input_channel = input_channel
         self.output_channel = output_channel
         self.client_capabilities = client_capabilities
         self.pyre_arguments = pyre_arguments
         self.binary_location = binary_location
-        self.server_identifier = server_identifier
+        self.project_identifier = project_identifier
 
     async def show_message_to_client(
         self, message: str, level: lsp.MessageType = lsp.MessageType.INFO
@@ -165,15 +164,13 @@ class PysaServer:
 
     async def wait_for_exit(self) -> int:
         while True:
-            async with _read_lsp_request(
-                self.input_channel, self.output_channel
-            ) as request:
-                LOG.debug(f"Received post-shutdown request: {request}")
+            request = await read_lsp_request(self.input_channel, self.output_channel)
+            LOG.debug(f"Received post-shutdown request: {request}")
 
-                if request.method == "exit":
-                    return 0
-                else:
-                    raise json_rpc.InvalidRequestError("LSP server has been shut down")
+            if request.method == "exit":
+                return 0
+            else:
+                raise json_rpc.InvalidRequestError("LSP server has been shut down")
 
     async def process_open_request(
         self, parameters: lsp.DidOpenTextDocumentParameters
@@ -209,10 +206,9 @@ class PysaServer:
 
     async def run(self) -> int:
         while True:
-            async with _read_lsp_request(
-                self.input_channel, self.output_channel
-            ) as request:
+            request = await read_lsp_request(self.input_channel, self.output_channel)
 
+            try:
                 if request.method == "exit":
                     return commands.ExitCode.FAILURE
                 elif request.method == "shutdown":
@@ -256,12 +252,25 @@ class PysaServer:
                     )
                 elif request.id is not None:
                     raise lsp.RequestCancelledError("Request not supported yet")
+            except json_rpc.JSONRPCException as json_rpc_error:
+                LOG.debug(
+                    f"Exception occurred while processing request: {json_rpc_error}"
+                )
+                await lsp.write_json_rpc_ignore_connection_error(
+                    self.output_channel,
+                    json_rpc.ErrorResponse(
+                        id=request.id,
+                        activity_key=request.activity_key,
+                        code=json_rpc_error.error_code(),
+                        message=str(json_rpc_error),
+                    ),
+                )
 
 
 async def run_persistent(
-    binary_location: str, server_identifier: str, pysa_arguments: start.Arguments
+    binary_location: str, project_identifier: str, pysa_arguments: start.Arguments
 ) -> int:
-    stdin, stdout = await connection.create_async_stdin_stdout()
+    stdin, stdout = await connections.create_async_stdin_stdout()
     while True:
         initialize_result = await try_initialize(stdin, stdout)
         if isinstance(initialize_result, InitializationExit):
@@ -290,7 +299,7 @@ async def run_persistent(
                 output_channel=stdout,
                 client_capabilities=client_capabilities,
                 binary_location=binary_location,
-                server_identifier=server_identifier,
+                project_identifier=project_identifier,
                 pyre_arguments=pysa_arguments,
             )
             return await server.run()
@@ -316,7 +325,7 @@ def run(
         )
 
     server_configuration = frontend_configuration.OpenSource(configuration)
-    server_identifier = start.get_server_identifier(server_configuration)
+    project_identifier = server_configuration.get_project_identifier()
     pyre_arguments = start.create_server_arguments(
         server_configuration, start_arguments
     )
@@ -329,5 +338,5 @@ def run(
         )
 
     return asyncio.get_event_loop().run_until_complete(
-        run_persistent(binary_location, server_identifier, pyre_arguments)
+        run_persistent(binary_location, project_identifier, pyre_arguments)
     )

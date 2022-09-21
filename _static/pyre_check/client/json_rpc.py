@@ -13,6 +13,7 @@ from typing import Any, Dict, Mapping, Optional, Sequence, Union
 
 
 JSON = Dict[str, Any]
+JSONRPC_VERSION = "2.0"
 
 
 class LanguageServerMessageType(Enum):
@@ -29,7 +30,7 @@ class JSONRPCException(Exception, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def error_code(self) -> int:
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
 class ParseError(JSONRPCException):
@@ -81,7 +82,7 @@ class InternalError(JSONRPCException):
 class JSONRPC(abc.ABC):
     @abc.abstractmethod
     def json(self) -> JSON:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def serialize(self) -> str:
         return json.dumps(self.json())
@@ -91,7 +92,7 @@ def _verify_json_rpc_version(json: JSON) -> None:
     json_rpc_version = json.get("jsonrpc")
     if json_rpc_version is None:
         raise InvalidRequestError(f"Required field `jsonrpc` is missing: {json}")
-    if json_rpc_version != "2.0":
+    if json_rpc_version != JSONRPC_VERSION:
         raise InvalidRequestError(
             f"`jsonrpc` is expected to be '2.0' but got '{json_rpc_version}'"
         )
@@ -141,7 +142,7 @@ class Request(JSONRPC):
     def json(self) -> JSON:
         parameters = self.parameters
         return {
-            "jsonrpc": "2.0",
+            "jsonrpc": JSONRPC_VERSION,
             "method": self.method,
             **({"id": self.id} if self.id is not None else {}),
             **(
@@ -246,7 +247,7 @@ class SuccessResponse(Response):
 
     def json(self) -> JSON:
         return {
-            "jsonrpc": "2.0",
+            "jsonrpc": JSONRPC_VERSION,
             **({"id": self.id} if self.id is not None else {}),
             **(
                 {"activityKey": self.activity_key}
@@ -287,7 +288,7 @@ class ErrorResponse(Response):
 
     def json(self) -> JSON:
         return {
-            "jsonrpc": "2.0",
+            "jsonrpc": JSONRPC_VERSION,
             **({"id": self.id} if self.id is not None else {}),
             **(
                 {"activityKey": self.activity_key}

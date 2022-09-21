@@ -34,8 +34,8 @@ from .. import (
 from . import (
     backend_arguments,
     commands,
+    daemon_socket,
     frontend_configuration,
-    server_connection,
     server_event,
     stop,
 )
@@ -129,6 +129,7 @@ class Arguments:
 
     base_arguments: backend_arguments.BaseArguments
 
+    socket_path: Path
     strict: bool = False
     show_error_traces: bool = False
     additional_logging_sections: Sequence[str] = dataclasses.field(default_factory=list)
@@ -137,17 +138,14 @@ class Arguments:
     store_type_check_resolution: bool = False
     critical_files: Sequence[CriticalFile] = dataclasses.field(default_factory=list)
     saved_state_action: Optional[SavedStateAction] = None
+    skip_initial_type_check: bool = False
+    use_lazy_module_tracking: bool = False
 
     def serialize(self) -> Dict[str, Any]:
         return {
             **self.base_arguments.serialize(),
             "strict": self.strict,
-            "socket_path": str(
-                server_connection.get_default_socket_path(
-                    Path(self.base_arguments.global_root),
-                    self.base_arguments.relative_local_root,
-                )
-            ),
+            "socket_path": str(self.socket_path),
             "show_error_traces": self.show_error_traces,
             "additional_logging_sections": self.additional_logging_sections,
             **(
@@ -165,6 +163,8 @@ class Arguments:
                 if self.saved_state_action is None
                 else {"saved_state_action": self.saved_state_action.serialize()}
             ),
+            "skip_initial_type_check": self.skip_initial_type_check,
+            "use_lazy_module_tracking": self.use_lazy_module_tracking,
         }
 
 
@@ -320,15 +320,12 @@ def create_server_arguments(
         else get_saved_state_action(
             start_arguments, relative_local_root=relative_local_root
         ),
+        skip_initial_type_check=start_arguments.skip_initial_type_check,
+        use_lazy_module_tracking=start_arguments.use_lazy_module_tracking,
+        socket_path=daemon_socket.get_default_socket_path(
+            configuration.get_project_identifier()
+        ),
     )
-
-
-def get_server_identifier(configuration: frontend_configuration.Base) -> str:
-    global_identifier = configuration.get_global_root().name
-    relative_local_root = configuration.get_relative_local_root()
-    if relative_local_root is None:
-        return global_identifier
-    return f"{global_identifier}/{relative_local_root}"
 
 
 def _run_in_foreground(
@@ -461,7 +458,7 @@ def run_start(
             " since no filesystem updates will be sent to the Pyre server."
         )
 
-    LOG.info(f"Starting server at `{get_server_identifier(configuration)}`...")
+    LOG.info(f"Starting server at `{configuration.get_project_identifier()}`...")
     with backend_arguments.temporary_argument_file(
         server_arguments
     ) as argument_file_path:
@@ -477,8 +474,8 @@ def run_start(
         if start_arguments.terminal:
             return _run_in_foreground(server_command, server_environment)
         else:
-            socket_path = server_connection.get_default_socket_path(
-                configuration.get_global_root(), configuration.get_relative_local_root()
+            socket_path = daemon_socket.get_default_socket_path(
+                configuration.get_project_identifier(),
             )
             return _run_in_background(
                 server_command,

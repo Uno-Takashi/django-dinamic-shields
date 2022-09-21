@@ -73,17 +73,7 @@ def _run_check_command(
     configuration = configuration_module.create_configuration(arguments, Path("."))
     _check_open_source_version(configuration)
     start_logging_to_directory(configuration.log_directory)
-    check_arguments = command_arguments.CheckArguments(
-        debug=arguments.debug,
-        enable_memory_profiling=arguments.enable_memory_profiling,
-        enable_profiling=arguments.enable_profiling,
-        log_identifier=arguments.log_identifier,
-        logging_sections=arguments.logging_sections,
-        noninteractive=arguments.noninteractive,
-        output=arguments.output,
-        sequential=arguments.sequential,
-        show_error_traces=arguments.show_error_traces,
-    )
+    check_arguments = command_arguments.CheckArguments.create(arguments)
     return commands.check.run(configuration, check_arguments)
 
 
@@ -95,21 +85,9 @@ def _run_incremental_command(
     configuration = configuration_module.create_configuration(arguments, Path("."))
     _check_open_source_version(configuration)
     start_logging_to_directory(configuration.log_directory)
-    start_arguments = command_arguments.StartArguments(
-        changed_files_path=arguments.changed_files_path,
-        debug=arguments.debug,
-        enable_memory_profiling=arguments.enable_memory_profiling,
-        enable_profiling=arguments.enable_profiling,
-        load_initial_state_from=arguments.load_initial_state_from,
-        log_identifier=arguments.log_identifier,
-        logging_sections=arguments.logging_sections,
-        no_saved_state=arguments.no_saved_state,
+    start_arguments = command_arguments.StartArguments.create(
+        arguments,
         no_watchman=no_watchman,
-        noninteractive=arguments.noninteractive,
-        save_initial_state_to=arguments.save_initial_state_to,
-        saved_state_project=arguments.saved_state_project,
-        sequential=arguments.sequential,
-        show_error_traces=arguments.show_error_traces,
         store_type_check_resolution=False,
         terminal=False,
         wait_on_initialization=True,
@@ -224,6 +202,16 @@ def _check_open_source_version(
     ),
 )
 @click.option(
+    "--only-check-paths",
+    type=str,
+    multiple=True,
+    help=(
+        "Report type errors for the given locations, rather than the default "
+        "directories."
+    ),
+    hidden=True,
+)
+@click.option(
     "--search-path",
     type=str,
     multiple=True,
@@ -301,6 +289,13 @@ def _check_open_source_version(
     default=None,
     hidden=True,
 )
+@click.option(
+    "--enable-consume-unsaved-changes/--no-enable-consume-unsaved-changes",
+    is_flag=True,
+    help="Whether Pyre should run on unsaved changes in the IDE.",
+    default=None,
+    hidden=True,
+)
 @click.option("--number-of-workers", type=int, help="Number of parallel workers to use")
 def pyre(
     context: click.Context,
@@ -316,6 +311,7 @@ def pyre(
     logging_sections: Optional[str],
     dot_pyre_directory: Optional[str],
     source_directory: Iterable[str],
+    only_check_paths: Iterable[str],
     search_path: Iterable[str],
     binary: Optional[str],
     exclude: Iterable[str],
@@ -332,6 +328,7 @@ def pyre(
     enable_go_to_definition: Optional[bool],
     enable_find_symbols: Optional[bool],
     enable_find_all_references: Optional[bool],
+    enable_consume_unsaved_changes: Optional[bool],
 ) -> None:
     arguments = command_arguments.CommandArguments(
         local_configuration=None,
@@ -349,7 +346,7 @@ def pyre(
         logger=None,
         targets=[],
         source_directories=list(source_directory),
-        do_not_ignore_errors_in=[],
+        only_check_paths=list(only_check_paths),
         buck_mode=None,
         no_saved_state=True,
         search_path=list(search_path),
@@ -374,6 +371,7 @@ def pyre(
         enable_go_to_definition=enable_go_to_definition,
         enable_find_symbols=enable_find_symbols,
         enable_find_all_references=enable_find_all_references,
+        enable_consume_unsaved_changes=enable_consume_unsaved_changes,
     )
     context.ensure_object(dict)
     context.obj["arguments"] = arguments
@@ -415,12 +413,32 @@ def pyre(
     type=str,
     help="Dump the call graph in the given file.",
 )
+# pyre-fixme[56]: Pyre was not able to infer the type of argument `os.path.abspath`
+#  to decorator factory `click.option`.
 @click.option("--repository-root", type=os.path.abspath)
 @click.option(
     "--rule",
     type=int,
     multiple=True,
-    help="Only track taint flows for the given rule.",
+    help="Only track taint flows for the given rule(s).",
+)
+@click.option(
+    "--source",
+    type=str,
+    multiple=True,
+    help="Only track taint flows for the given source(s).",
+)
+@click.option(
+    "--sink",
+    type=str,
+    multiple=True,
+    help="Only track taint flows for the given sink(s).",
+)
+@click.option(
+    "--transform",
+    type=str,
+    multiple=True,
+    help="Only track taint flows for the given transform(s).",
 )
 @click.option(
     "--find-missing-flows",
@@ -466,6 +484,9 @@ def analyze(
     dump_call_graph: Optional[str],
     repository_root: Optional[str],
     rule: Iterable[int],
+    source: Iterable[str],
+    sink: Iterable[str],
+    transform: Iterable[str],
     find_missing_flows: Optional[str],
     dump_model_query_results: Optional[str],
     use_cache: bool,
@@ -506,6 +527,9 @@ def analyze(
             output=command_argument.output,
             repository_root=repository_root,
             rule=list(rule),
+            source=list(source),
+            sink=list(sink),
+            transform=list(transform),
             save_results_to=save_results_to,
             sequential=command_argument.sequential,
             taint_models_path=list(taint_models_path),
@@ -708,16 +732,18 @@ def init(context: click.Context) -> int:
 
 
 @pyre.command()
+@click.option(
+    "--skip-environment-setup",
+    is_flag=True,
+    default=False,
+    help="Skip setting up an environment to run Pysa",
+)
 @click.pass_context
-def init_pysa(context: click.Context) -> int:
+def init_pysa(context: click.Context, skip_environment_setup: bool) -> int:
     """
     Creates a suitable environment for running pyre analyze.
     """
-    create_configuration_return_code: int = commands.initialize.run()
-    if create_configuration_return_code == commands.ExitCode.SUCCESS:
-        return commands.initialize_pysa.run()
-    else:
-        return create_configuration_return_code
+    return commands.initialize_pysa.run(skip_environment_setup)
 
 
 @pyre.command()
@@ -745,7 +771,7 @@ def persistent(context: click.Context) -> int:
     and responses from the Pyre server to stdout.
     """
     command_argument: command_arguments.CommandArguments = context.obj["arguments"]
-    base_directory = Path(".")
+    base_directory: Path = Path(".")
     configuration = configuration_module.create_configuration(
         command_argument, base_directory
     )
@@ -753,50 +779,19 @@ def persistent(context: click.Context) -> int:
         configuration.log_directory,
     )
     return commands.persistent.run(
-        command_argument,
-        base_directory,
-        commands.backend_arguments.RemoteLogging.create(
-            configuration.logger, command_argument.log_identifier
+        read_server_options=commands.persistent.PyreServerOptions.create_reader(
+            start_command_argument=command_arguments.StartArguments.create(
+                command_argument=command_argument,
+            ),
+            read_frontend_configuration=lambda: commands.frontend_configuration.OpenSource(
+                configuration_module.create_configuration(
+                    command_argument, base_directory
+                )
+            ),
+            enabled_telemetry_event=False,
         ),
-    )
-
-
-@pyre.command()
-@click.option("--no-watchman", is_flag=True, default=False, hidden=True)
-@click.pass_context
-def pysa_language_server(context: click.Context, no_watchman: bool) -> int:
-    """
-    Entry point for IDE integration to Pysa. Communicates with a Pysa server using
-    the Language Server Protocol, accepts input from stdin and writing diagnostics
-    and responses from the Pysa server to stdout.
-    """
-    command_argument: command_arguments.CommandArguments = context.obj["arguments"]
-    configuration = configuration_module.create_configuration(
-        command_argument, Path(".")
-    )
-    start_logging_to_directory(
-        configuration.log_directory,
-    )
-    return commands.pysa_server.run(
-        configuration,
-        command_arguments.StartArguments(
-            changed_files_path=command_argument.changed_files_path,
-            debug=command_argument.debug,
-            enable_memory_profiling=command_argument.enable_memory_profiling,
-            enable_profiling=command_argument.enable_profiling,
-            load_initial_state_from=command_argument.load_initial_state_from,
-            log_identifier=command_argument.log_identifier,
-            logging_sections=command_argument.logging_sections,
-            no_saved_state=command_argument.no_saved_state,
-            no_watchman=no_watchman,
-            noninteractive=command_argument.noninteractive,
-            save_initial_state_to=command_argument.save_initial_state_to,
-            saved_state_project=command_argument.saved_state_project,
-            sequential=command_argument.sequential,
-            show_error_traces=command_argument.show_error_traces,
-            store_type_check_resolution=False,
-            terminal=False,
-            wait_on_initialization=True,
+        remote_logging=commands.backend_arguments.RemoteLogging.create(
+            configuration.logger, command_argument.log_identifier
         ),
     )
 
@@ -828,6 +823,34 @@ def profile(context: click.Context, profile_output: str) -> int:
 
 
 @pyre.command()
+@click.option("--no-watchman", is_flag=True, default=False, hidden=True)
+@click.pass_context
+def pysa_language_server(context: click.Context, no_watchman: bool) -> int:
+    """
+    Entry point for IDE integration to Pysa. Communicates with a Pysa server using
+    the Language Server Protocol, accepts input from stdin and writing diagnostics
+    and responses from the Pysa server to stdout.
+    """
+    command_argument: command_arguments.CommandArguments = context.obj["arguments"]
+    configuration = configuration_module.create_configuration(
+        command_argument, Path(".")
+    )
+    start_logging_to_directory(
+        configuration.log_directory,
+    )
+    return commands.pysa_server.run(
+        configuration,
+        command_arguments.StartArguments.create(
+            command_argument,
+            no_watchman=no_watchman,
+            store_type_check_resolution=False,
+            terminal=False,
+            wait_on_initialization=True,
+        ),
+    )
+
+
+@pyre.command()
 @click.argument("query", type=str)
 @click.pass_context
 def query(context: click.Context, query: str) -> int:
@@ -848,6 +871,8 @@ def query(context: click.Context, query: str) -> int:
 
 
 @pyre.command()
+# pyre-fixme[56]: Pyre was not able to infer the type of argument `os.path.abspath`
+#  to decorator factory `click.option`.
 @click.option(
     "--output-file",
     type=os.path.abspath,
@@ -877,6 +902,25 @@ def rage(
             output=Path(output_file) if output_file is not None else None,
             server_log_count=server_log_count,
         ),
+    )
+
+
+@pyre.command()
+@click.pass_context
+def info(
+    context: click.Context,
+) -> int:
+    """
+    Collects troubleshooting diagnostics for Pyre, and writes this information
+    to the terminal or to a file.
+    """
+    command_argument: command_arguments.CommandArguments = context.obj["arguments"]
+    configuration = configuration_module.create_configuration(
+        command_argument, Path(".")
+    )
+    return commands.info.run(
+        configuration,
+        command_argument,
     )
 
 
@@ -912,21 +956,9 @@ def restart(
     )
     _check_open_source_version(configuration)
     start_logging_to_directory(configuration.log_directory)
-    start_arguments = command_arguments.StartArguments(
-        changed_files_path=command_argument.changed_files_path,
-        debug=command_argument.debug,
-        enable_memory_profiling=command_argument.enable_memory_profiling,
-        enable_profiling=command_argument.enable_profiling,
-        load_initial_state_from=command_argument.load_initial_state_from,
-        log_identifier=command_argument.log_identifier,
-        logging_sections=command_argument.logging_sections,
-        no_saved_state=command_argument.no_saved_state,
+    start_arguments = command_arguments.StartArguments.create(
+        command_argument=command_argument,
         no_watchman=no_watchman,
-        noninteractive=command_argument.noninteractive,
-        save_initial_state_to=command_argument.save_initial_state_to,
-        saved_state_project=command_argument.saved_state_project,
-        sequential=command_argument.sequential,
-        show_error_traces=command_argument.show_error_traces,
         store_type_check_resolution=store_type_check_resolution,
         terminal=terminal,
         wait_on_initialization=True,
@@ -1012,6 +1044,18 @@ def servers_stop(context: click.Context) -> int:
     hidden=True,
     help="When `--terminal` is unset, wait for server initialization to finish.",
 )
+@click.option(
+    "--skip-initial-type-check/--no-skip-initial-type-check",
+    default=False,
+    hidden=True,
+    help="Skip the initial type check of all in-project modules.",
+)
+@click.option(
+    "--use-lazy-module-tracking/--no-use-lazy-module-tracking",
+    default=False,
+    hidden=True,
+    help="Use lazy module tracking. This is experimental and cannot power full checks.",
+)
 @click.pass_context
 def start(
     context: click.Context,
@@ -1019,9 +1063,11 @@ def start(
     store_type_check_resolution: bool,
     no_watchman: bool,
     wait_on_initialization: bool,
+    skip_initial_type_check: bool,
+    use_lazy_module_tracking: bool,
 ) -> int:
     """
-    Starts a pyre server as a daemon.
+    Starts a pyre server as a daemon_socket.
     """
     command_argument: command_arguments.CommandArguments = context.obj["arguments"]
     configuration = configuration_module.create_configuration(
@@ -1031,24 +1077,14 @@ def start(
     start_logging_to_directory(configuration.log_directory)
     return commands.start.run(
         configuration,
-        command_arguments.StartArguments(
-            changed_files_path=command_argument.changed_files_path,
-            debug=command_argument.debug,
-            enable_memory_profiling=command_argument.enable_memory_profiling,
-            enable_profiling=command_argument.enable_profiling,
-            load_initial_state_from=command_argument.load_initial_state_from,
-            log_identifier=command_argument.log_identifier,
-            logging_sections=command_argument.logging_sections,
-            no_saved_state=command_argument.no_saved_state,
+        command_arguments.StartArguments.create(
+            command_argument=command_argument,
             no_watchman=no_watchman,
-            noninteractive=command_argument.noninteractive,
-            save_initial_state_to=command_argument.save_initial_state_to,
-            saved_state_project=command_argument.saved_state_project,
-            sequential=command_argument.sequential,
-            show_error_traces=command_argument.show_error_traces,
             store_type_check_resolution=store_type_check_resolution,
             terminal=terminal,
             wait_on_initialization=wait_on_initialization,
+            skip_initial_type_check=skip_initial_type_check,
+            use_lazy_module_tracking=use_lazy_module_tracking,
         ),
     )
 

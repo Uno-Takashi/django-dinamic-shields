@@ -14,12 +14,12 @@ from typing import Iterable, List, Optional, Type, TypeVar
 import dataclasses_json
 from pyre_extensions import override
 
-from .. import json_rpc
-from . import async_server_connection
+from .. import dataclasses_json_extensions as json_mixins, json_rpc
+from . import connections
 
 LOG: logging.Logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
+T = TypeVar("T", bound=json_mixins.DataclassJsonMixinWithCachedSchema)
 Point = TypeVar("Point")
 Value = TypeVar("Value")
 
@@ -30,13 +30,25 @@ class ServerNotInitializedError(json_rpc.JSONRPCException):
         return -32002
 
 
+class RequestFailedError(json_rpc.JSONRPCException):
+    @override
+    def error_code(self) -> int:
+        return -32803
+
+
 class RequestCancelledError(json_rpc.JSONRPCException):
     @override
     def error_code(self) -> int:
         return -32800
 
 
-async def _read_headers(input_channel: async_server_connection.TextReader) -> List[str]:
+class ReadChannelClosedError(Exception):
+    pass
+
+
+async def _read_headers(
+    input_channel: connections.AsyncTextReader,
+) -> List[str]:
     headers = []
     header = await input_channel.read_until("\r\n")
     while header != "\r\n":
@@ -47,6 +59,7 @@ async def _read_headers(input_channel: async_server_connection.TextReader) -> Li
 
 def _get_content_length(headers: Iterable[str]) -> int:
     try:
+        parts: List[str] = []
         for header in headers:
             parts = [part.strip().lower() for part in header.split(":", maxsplit=1)]
             if len(parts) <= 1:
@@ -55,19 +68,20 @@ def _get_content_length(headers: Iterable[str]) -> int:
             if parts[0] == "content-length":
                 return int(parts[1])
 
-        # pyre-fixme[61]: `parts` may not be initialized here.
         raise json_rpc.ParseError(f"Failed to find content length header from {parts}")
     except ValueError as error:
-        raise json_rpc.ParseError(f"Cannot parse content length into integer: {error}")
+        raise json_rpc.ParseError(
+            "Cannot parse content length into integer."
+        ) from error
 
 
 async def read_json_rpc(
-    input_channel: async_server_connection.TextReader,
+    input_channel: connections.AsyncTextReader,
 ) -> json_rpc.Request:
     """
     Asynchronously read a JSON-RPC request from the given input channel.
-    May raise `json_rpc.ParseError`, `json_rpc.InvalidRequestError` and
-    `json_prc.InvalidParameterError`.
+    May raise `json_rpc.ParseError`, `json_rpc.InvalidRequestError`,
+    `json_prc.InvalidParameterError`, and `ReadChannelClosedError`.
     """
     try:
         headers = await _read_headers(input_channel)
@@ -76,17 +90,41 @@ async def read_json_rpc(
         payload = await input_channel.read_exactly(content_length)
         return json_rpc.Request.from_string(payload)
     except asyncio.IncompleteReadError as error:
-        raise json_rpc.ParseError(str(error)) from error
+        if len(error.partial) == 0:
+            raise ReadChannelClosedError(
+                "Trying to read from a closed input channel"
+            ) from None
+        else:
+            raise json_rpc.ParseError(str(error)) from None
+
+
+def json_rpc_payload(message: json_rpc.JSONRPC) -> str:
+    payload = message.serialize()
+    return f"Content-Length: {len(payload)}\r\n\r\n{payload}"
 
 
 async def write_json_rpc(
-    output_channel: async_server_connection.TextWriter, response: json_rpc.JSONRPC
+    output_channel: connections.AsyncTextWriter,
+    response: json_rpc.JSONRPC,
 ) -> None:
     """
     Asynchronously write a JSON-RPC response to the given output channel.
     """
-    payload = response.serialize()
-    await output_channel.write(f"Content-Length: {len(payload)}\r\n\r\n{payload}")
+    await output_channel.write(json_rpc_payload(response))
+
+
+async def write_json_rpc_ignore_connection_error(
+    output_channel: connections.AsyncTextWriter,
+    response: json_rpc.JSONRPC,
+) -> None:
+    """
+    Asynchronously write a JSON-RPC response to the given output channel, and ignore
+    any `ConnectionError` that occurred.
+    """
+    try:
+        await write_json_rpc(output_channel, response)
+    except ConnectionError as error:
+        LOG.info(f"Ignoring connection error while writing JSON RPC. Error: {error}")
 
 
 def _parse_parameters(parameters: json_rpc.Parameters, target: Type[T]) -> T:
@@ -99,43 +137,38 @@ def _parse_parameters(parameters: json_rpc.Parameters, target: Type[T]) -> T:
             "Parameters for LSP requests must be passed by name"
         )
     try:
-        # pyre-fixme[16]: Pyre doesn't understand `dataclasses_json`
-        return target.schema().load(parameters.values)
+        # pyre-ignore[6, 7]: Imprecise typing of `load()`
+        return target.cached_schema().load(parameters.values)
     except (KeyError, ValueError, dataclasses_json.mm.ValidationError) as error:
         raise json_rpc.InvalidRequestError(str(error)) from error
 
 
-class SerializationSafeIntEnum(enum.IntEnum):
-    def __repr(self) -> str:
-        return str(self.value)
-
-
-class DiagnosticTag(SerializationSafeIntEnum):
+class DiagnosticTag(enum.IntEnum):
     UNNECESSARY = 1
     DEPRECATED = 2
 
 
-class DiagnosticSeverity(SerializationSafeIntEnum):
+class DiagnosticSeverity(enum.IntEnum):
     ERROR = 1
     WARNING = 2
     INFORMATION = 3
     HINT = 4
 
 
-class TextDocumentSyncKind(SerializationSafeIntEnum):
+class TextDocumentSyncKind(enum.IntEnum):
     NONE = 0
     FULL = 1
     INCREMENTAL = 2
 
 
-class MessageType(SerializationSafeIntEnum):
+class MessageType(enum.IntEnum):
     ERROR = 1
     WARNING = 2
     INFO = 3
     LOG = 4
 
 
-class SymbolKind(SerializationSafeIntEnum):
+class SymbolKind(enum.IntEnum):
     FILE = 1
     MODULE = 2
     NAMESPACE = 3
@@ -207,12 +240,8 @@ class DocumentUri:
         )
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True, order=True)
-class Position:
+class PyrePosition(json_mixins.CamlCaseAndExcludeJsonMixin):
     line: int
     character: int
 
@@ -220,29 +249,21 @@ class Position:
         return LspPosition(self.line - 1, self.character)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class LspPosition:
+class LspPosition(json_mixins.CamlCaseAndExcludeJsonMixin):
     """LSP uses 0-indexing for lines whereas Pyre uses 1-indexing."""
 
     line: int
     character: int
 
-    def to_pyre_position(self) -> "Position":
-        return Position(self.line + 1, self.character)
+    def to_pyre_position(self) -> "PyrePosition":
+        return PyrePosition(self.line + 1, self.character)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class Range:
-    start: Position
-    end: Position
+class PyreRange(json_mixins.CamlCaseAndExcludeJsonMixin):
+    start: PyrePosition
+    end: PyrePosition
 
     def to_lsp_range(self) -> "LspRange":
         return LspRange(
@@ -251,134 +272,82 @@ class Range:
         )
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class LspRange:
+class LspRange(json_mixins.CamlCaseAndExcludeJsonMixin):
     start: LspPosition
     end: LspPosition
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class Diagnostic:
-    range: Range
+class Diagnostic(json_mixins.CamlCaseAndExcludeJsonMixin):
+    range: LspRange
     message: str
     severity: Optional[DiagnosticSeverity] = None
     code: Optional[int] = None
     source: Optional[str] = None
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class Info:
+class Info(json_mixins.CamlCaseAndExcludeJsonMixin):
     name: str
     version: Optional[str] = None
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class TextDocumentSyncClientCapabilities:
+class TextDocumentSyncClientCapabilities(json_mixins.CamlCaseAndExcludeJsonMixin):
     did_save: bool = False
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class PublishDiagnosticsClientTagSupport:
+class PublishDiagnosticsClientTagSupport(json_mixins.CamlCaseAndExcludeJsonMixin):
     value_set: List[DiagnosticTag] = dataclasses.field(default_factory=list)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class PublishDiagnosticsClientCapabilities:
+class PublishDiagnosticsClientCapabilities(json_mixins.CamlCaseAndExcludeJsonMixin):
     related_information: bool = False
     tag_support: Optional[PublishDiagnosticsClientTagSupport] = None
     version_support: bool = False
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class TextDocumentClientCapabilities:
+class TextDocumentClientCapabilities(json_mixins.CamlCaseAndExcludeJsonMixin):
     synchronization: Optional[TextDocumentSyncClientCapabilities] = None
     publish_diagnostics: Optional[PublishDiagnosticsClientCapabilities] = None
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class ShowStatusRequestClientCapabilities:
+class ShowStatusRequestClientCapabilities(json_mixins.CamlCaseAndExcludeJsonMixin):
     pass
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class WindowClientCapabilities:
+class WindowClientCapabilities(json_mixins.CamlCaseAndExcludeJsonMixin):
     work_done_progress: Optional[bool] = None
     # Custom VSCode extension for status bar
     status: Optional[ShowStatusRequestClientCapabilities] = None
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class ClientCapabilities:
+class ClientCapabilities(json_mixins.CamlCaseAndExcludeJsonMixin):
     text_document: Optional[TextDocumentClientCapabilities] = None
     window: Optional[WindowClientCapabilities] = None
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class SaveOptions:
+class SaveOptions(json_mixins.CamlCaseAndExcludeJsonMixin):
     include_text: Optional[bool] = None
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class TextDocumentSyncOptions:
+class TextDocumentSyncOptions(json_mixins.CamlCaseAndExcludeJsonMixin):
     open_close: bool = False
     change: TextDocumentSyncKind = TextDocumentSyncKind.NONE
     save: Optional[SaveOptions] = None
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class ServerCapabilities:
+class ServerCapabilities(json_mixins.CamlCaseAndExcludeJsonMixin):
     text_document_sync: Optional[TextDocumentSyncOptions] = None
     hover_provider: Optional[bool] = None
     definition_provider: Optional[bool] = None
@@ -386,21 +355,13 @@ class ServerCapabilities:
     references_provider: Optional[bool] = None
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class InitializationOptions:
+class InitializationOptions(json_mixins.CamlCaseAndExcludeJsonMixin):
     notebook_number: Optional[int] = None
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class InitializeParameters:
+class InitializeParameters(json_mixins.CamlCaseAndExcludeJsonMixin):
     capabilities: ClientCapabilities
     process_id: Optional[int] = None
     client_info: Optional[Info] = None
@@ -413,34 +374,22 @@ class InitializeParameters:
         return _parse_parameters(parameters, target=InitializeParameters)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class InitializeResult:
+class InitializeResult(json_mixins.CamlCaseAndExcludeJsonMixin):
     capabilities: ServerCapabilities
     server_info: Optional[Info] = None
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class TextDocumentIdentifier:
+class TextDocumentIdentifier(json_mixins.CamlCaseAndExcludeJsonMixin):
     uri: str
 
     def document_uri(self) -> DocumentUri:
         return DocumentUri.parse(self.uri)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class TextDocumentItem:
+class TextDocumentItem(json_mixins.CamlCaseAndExcludeJsonMixin):
     uri: str
     language_id: str
     version: int
@@ -450,12 +399,13 @@ class TextDocumentItem:
         return DocumentUri.parse(self.uri)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class DidOpenTextDocumentParameters:
+class ContentChange(json_mixins.CamlCaseAndExcludeJsonMixin):
+    text: str
+
+
+@dataclasses.dataclass(frozen=True)
+class DidOpenTextDocumentParameters(json_mixins.CamlCaseAndExcludeJsonMixin):
     text_document: TextDocumentItem
 
     @staticmethod
@@ -465,12 +415,8 @@ class DidOpenTextDocumentParameters:
         return _parse_parameters(parameters, target=DidOpenTextDocumentParameters)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class DidCloseTextDocumentParameters:
+class DidCloseTextDocumentParameters(json_mixins.CamlCaseAndExcludeJsonMixin):
     text_document: TextDocumentIdentifier
 
     @staticmethod
@@ -480,12 +426,20 @@ class DidCloseTextDocumentParameters:
         return _parse_parameters(parameters, target=DidCloseTextDocumentParameters)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class DidSaveTextDocumentParameters:
+class DidChangeTextDocumentParameters(json_mixins.CamlCaseAndExcludeJsonMixin):
+    text_document: TextDocumentIdentifier
+    content_changes: List[ContentChange]
+
+    @staticmethod
+    def from_json_rpc_parameters(
+        parameters: json_rpc.Parameters,
+    ) -> "DidChangeTextDocumentParameters":
+        return _parse_parameters(parameters, target=DidChangeTextDocumentParameters)
+
+
+@dataclasses.dataclass(frozen=True)
+class DidSaveTextDocumentParameters(json_mixins.CamlCaseAndExcludeJsonMixin):
     text_document: TextDocumentIdentifier
     text: Optional[str] = None
 
@@ -496,21 +450,15 @@ class DidSaveTextDocumentParameters:
         return _parse_parameters(parameters, target=DidSaveTextDocumentParameters)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class WorkspaceConfiguration:
+class WorkspaceConfiguration(json_mixins.CamlCaseAndExcludeJsonMixin):
     kernel_runtime_dir: List[str]
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class WorkspaceDidChangeConfigurationParameters:
+class WorkspaceDidChangeConfigurationParameters(
+    json_mixins.CamlCaseAndExcludeJsonMixin
+):
     settings: WorkspaceConfiguration
 
     @staticmethod
@@ -522,63 +470,47 @@ class WorkspaceDidChangeConfigurationParameters:
         )
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class HoverTextDocumentParameters:
+class HoverParameters(json_mixins.CamlCaseAndExcludeJsonMixin):
     text_document: TextDocumentIdentifier
     position: LspPosition
 
     @staticmethod
     def from_json_rpc_parameters(
         parameters: json_rpc.Parameters,
-    ) -> "HoverTextDocumentParameters":
-        return _parse_parameters(parameters, target=HoverTextDocumentParameters)
+    ) -> "HoverParameters":
+        return _parse_parameters(parameters, target=HoverParameters)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class HoverResponse:
+class LspHoverResponse(json_mixins.CamlCaseAndExcludeJsonMixin):
     """Contains the Markdown response to be shown in the hover card."""
 
     contents: str
 
     @staticmethod
-    def empty() -> "HoverResponse":
-        return HoverResponse(contents="")
+    def empty() -> "LspHoverResponse":
+        return LspHoverResponse(contents="")
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class ReferencesTextDocumentParameters:
+class ReferencesParameters(json_mixins.CamlCaseAndExcludeJsonMixin):
     text_document: TextDocumentIdentifier
     position: LspPosition
 
     @staticmethod
     def from_json_rpc_parameters(
         parameters: json_rpc.Parameters,
-    ) -> "ReferencesTextDocumentParameters":
-        return _parse_parameters(parameters, target=ReferencesTextDocumentParameters)
+    ) -> "ReferencesParameters":
+        return _parse_parameters(parameters, target=ReferencesParameters)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class ReferencesResponse:
+class ReferencesResponse(json_mixins.CamlCaseAndExcludeJsonMixin):
     """Contains code location of one reference."""
 
     path: str
-    range: Range
+    range: PyreRange
 
     def to_lsp_definition_response(
         self,
@@ -586,27 +518,19 @@ class ReferencesResponse:
         return LspDefinitionResponse(uri=self.path, range=self.range.to_lsp_range())
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class TypeCoverageTextDocumentParameters:
+class TypeCoverageParameters(json_mixins.CamlCaseAndExcludeJsonMixin):
     text_document: TextDocumentIdentifier
 
     @staticmethod
     def from_json_rpc_parameters(
         parameters: json_rpc.Parameters,
-    ) -> "TypeCoverageTextDocumentParameters":
-        return _parse_parameters(parameters, target=TypeCoverageTextDocumentParameters)
+    ) -> "TypeCoverageParameters":
+        return _parse_parameters(parameters, target=TypeCoverageParameters)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class TypeCoverageResult:
+class TypeCoverageResponse(json_mixins.CamlCaseAndExcludeJsonMixin):
     """Result for nuclide-vscode-lsp coverage feature."""
 
     covered_percent: float
@@ -614,32 +538,24 @@ class TypeCoverageResult:
     default_message: str
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class DefinitionTextDocumentParameters:
+class DefinitionParameters(json_mixins.CamlCaseAndExcludeJsonMixin):
     text_document: TextDocumentIdentifier
     position: LspPosition
 
     @staticmethod
     def from_json_rpc_parameters(
         parameters: json_rpc.Parameters,
-    ) -> "DefinitionTextDocumentParameters":
-        return _parse_parameters(parameters, target=DefinitionTextDocumentParameters)
+    ) -> "DefinitionParameters":
+        return _parse_parameters(parameters, target=DefinitionParameters)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class PyreDefinitionResponse:
+class PyreDefinitionResponse(json_mixins.CamlCaseAndExcludeJsonMixin):
     """Contains one possible definition for a symbol."""
 
     path: str
-    range: Range
+    range: PyreRange
 
     def to_lsp_definition_response(
         self,
@@ -647,41 +563,27 @@ class PyreDefinitionResponse:
         return LspDefinitionResponse(uri=self.path, range=self.range.to_lsp_range())
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class LspDefinitionResponse:
+class LspDefinitionResponse(json_mixins.CamlCaseAndExcludeJsonMixin):
     """Contains one possible definition for a symbol."""
 
     uri: str
     range: LspRange
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class DocumentSymbolsTextDocumentParameters:
+class DocumentSymbolsParameters(json_mixins.CamlCaseAndExcludeJsonMixin):
     text_document: TextDocumentIdentifier
 
     @staticmethod
     def from_json_rpc_parameters(
         parameters: json_rpc.Parameters,
-    ) -> "DocumentSymbolsTextDocumentParameters":
-        return _parse_parameters(
-            parameters, target=DocumentSymbolsTextDocumentParameters
-        )
+    ) -> "DocumentSymbolsParameters":
+        return _parse_parameters(parameters, target=DocumentSymbolsParameters)
 
 
-@dataclasses_json.dataclass_json(
-    letter_case=dataclasses_json.LetterCase.CAMEL,
-    undefined=dataclasses_json.Undefined.EXCLUDE,
-)
 @dataclasses.dataclass(frozen=True)
-class DocumentSymbolsResponse:
+class DocumentSymbolsResponse(json_mixins.CamlCaseAndExcludeJsonMixin):
     """Contains one possible definition for a symbol."""
 
     name: str
