@@ -1,14 +1,15 @@
-from typing import Iterable, Awaitable, Callable
-from aiohttp.web_response import StreamResponse
-from aiohttp.web_request import Request
+from typing import Awaitable, Callable, Iterable
+
 from aiohttp.web_middlewares import middleware
+from aiohttp.web_request import Request
+from aiohttp.web_response import StreamResponse
 
 Handler = Callable[[Request], Awaitable[StreamResponse]]
 Middleware = Callable[[Request, Handler], Awaitable[StreamResponse]]
 
 
 def cors(allow_headers: Iterable[str]) -> Middleware:
-    @middleware
+    @middleware  # type: ignore[misc]
     async def impl(request: Request, handler: Handler) -> StreamResponse:
         is_options = request.method == "OPTIONS"
         is_preflight = is_options and "Access-Control-Request-Method" in request.headers
@@ -31,4 +32,4 @@ def cors(allow_headers: Iterable[str]) -> Middleware:
 
         return resp
 
-    return impl  # type: ignore
+    return impl  # type: ignore[no-any-return]

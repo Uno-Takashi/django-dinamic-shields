@@ -4,11 +4,10 @@ Mostly around Python language feature support per version and Black configuratio
 chosen by the user.
 """
 
-from hashlib import sha256
 import sys
-
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from hashlib import sha256
 from operator import attrgetter
 from typing import Dict, Set
 from warnings import warn
@@ -50,6 +49,7 @@ class Feature(Enum):
     ANN_ASSIGN_EXTENDED_RHS = 13
     EXCEPT_STAR = 14
     VARIADIC_GENERICS = 15
+    DEBUG_F_STRINGS = 16
     FORCE_OPTIONAL_PARENTHESES = 50
 
     # __future__ flags
@@ -82,6 +82,7 @@ VERSION_TO_FEATURES: Dict[TargetVersion, Set[Feature]] = {
     },
     TargetVersion.PY38: {
         Feature.F_STRINGS,
+        Feature.DEBUG_F_STRINGS,
         Feature.NUMERIC_UNDERSCORES,
         Feature.TRAILING_COMMA_IN_CALL,
         Feature.TRAILING_COMMA_IN_DEF,
@@ -94,6 +95,7 @@ VERSION_TO_FEATURES: Dict[TargetVersion, Set[Feature]] = {
     },
     TargetVersion.PY39: {
         Feature.F_STRINGS,
+        Feature.DEBUG_F_STRINGS,
         Feature.NUMERIC_UNDERSCORES,
         Feature.TRAILING_COMMA_IN_CALL,
         Feature.TRAILING_COMMA_IN_DEF,
@@ -107,6 +109,7 @@ VERSION_TO_FEATURES: Dict[TargetVersion, Set[Feature]] = {
     },
     TargetVersion.PY310: {
         Feature.F_STRINGS,
+        Feature.DEBUG_F_STRINGS,
         Feature.NUMERIC_UNDERSCORES,
         Feature.TRAILING_COMMA_IN_CALL,
         Feature.TRAILING_COMMA_IN_DEF,
@@ -121,6 +124,7 @@ VERSION_TO_FEATURES: Dict[TargetVersion, Set[Feature]] = {
     },
     TargetVersion.PY311: {
         Feature.F_STRINGS,
+        Feature.DEBUG_F_STRINGS,
         Feature.NUMERIC_UNDERSCORES,
         Feature.TRAILING_COMMA_IN_CALL,
         Feature.TRAILING_COMMA_IN_DEF,
@@ -145,12 +149,14 @@ def supports_feature(target_versions: Set[TargetVersion], feature: Feature) -> b
 class Preview(Enum):
     """Individual preview style features."""
 
-    string_processing = auto()
-    remove_redundant_parens = auto()
-    one_element_subscript = auto()
     annotation_parens = auto()
     long_docstring_quotes_on_newline = auto()
+    normalize_docstring_quotes_and_prefixes_properly = auto()
+    one_element_subscript = auto()
     remove_block_trailing_newline = auto()
+    remove_redundant_parens = auto()
+    string_processing = auto()
+    skip_magic_trailing_comma_in_subscript = auto()
 
 
 class Deprecated(UserWarning):
