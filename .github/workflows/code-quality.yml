@@ -80,3 +80,9 @@ jobs:
         with:
           dockerfile: ./docs/Dockerfile
           ignore: "DL3007,SC2210,DL3013"
+  markdownlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: nosborn/github-action-markdown-cli@v3.0.1
+        with:
+          files: *.md
