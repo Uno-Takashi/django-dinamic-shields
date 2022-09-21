@@ -1,0 +1,78 @@
+name: security
+
+on:
+  push:
+  schedule:
+    - cron: "0 1 * * *"
+
+jobs:
+  pyt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: install utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install moreutils -y
+      - uses: actions/setup-python@v3
+        with:
+          python-version: "3.9"
+      - name: install python-taint
+        run: pip install python-taint
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: run pyt
+        run: |
+          pyt -a D -o pyt.txt ./
+      - name: Archive pyt log
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: pyt-report
+          path: ./pyt.txt
+  code-ql:
+    name: Analyze
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["python"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: ${{ matrix.language }}
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: install utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install moreutils -y
+      - uses: actions/setup-python@v3
+        with:
+          python-version: "3.9"
+      - name: install bandit
+        run: pip install bandit
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: run bandit
+        run: |
+          bandit django_dynamic_shields -r -o ./bandit.txt -f txt
+      - name: Archive bandit log
+        if: always()
+        uses: actions/upload-artifact@v2
+        continue-on-error: true
+        with:
+          name: bandit-report
+          path: ./bandit.txt
