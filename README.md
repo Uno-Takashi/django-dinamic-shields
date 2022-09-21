@@ -2,7 +2,7 @@
 
 [![sphinx](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/sphinx.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/sphinx.yml)
 [![Code Quality](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/code-quality.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/code-quality.yml)
-[![security](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/security.yml/badge.svg?branch=main&event=push)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/security.yml)
+[![security](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/Uno-Takashi/django-dynamic-shields/actions/workflows/security.yml)
 
 [![codecov](https://codecov.io/gh/Uno-Takashi/django-dynamic-shields/branch/main/graph/badge.svg?token=3CWnrX8w7n)](https://codecov.io/gh/Uno-Takashi/django-dynamic-shields)
 [![PyPI - Downloads](https://img.shields.io/pypi/dw/django-dynamic-shields?label=PyPI%20download&logo=python)](https://pypi.org/project/django-dynamic-shields/)
