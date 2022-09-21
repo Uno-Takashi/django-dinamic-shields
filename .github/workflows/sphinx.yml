@@ -24,7 +24,7 @@ jobs:
         run: poetry install
       - name: make html
         run: |
-          cd docs 
+          cd docs
           poetry run make html
           cd ../
           git config --global init.defaultBranch main
