@@ -30,7 +30,6 @@ jobs:
           name: pyt-report
           path: ./pyt.txt
   code-ql:
-    name: Analyze
     runs-on: ubuntu-latest
     permissions:
       actions: read
