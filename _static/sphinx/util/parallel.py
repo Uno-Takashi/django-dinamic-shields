@@ -1,6 +1,7 @@
 """Parallel building utilities."""
 
 import os
+import sys
 import time
 import traceback
 from math import sqrt
@@ -16,6 +17,11 @@ from sphinx.util import logging
 
 logger = logging.getLogger(__name__)
 
+if sys.platform != "win32":
+    ForkProcess = multiprocessing.context.ForkProcess
+else:
+    # For static typing, as ForkProcess doesn't exist on Windows
+    ForkProcess = multiprocessing.process.BaseProcess
 
 # our parallel functionality only works for the forking Process
 parallel_available = multiprocessing and os.name == 'posix'
@@ -49,7 +55,7 @@ class ParallelTasks:
         # task arguments
         self._args: Dict[int, Optional[List[Any]]] = {}
         # list of subprocesses (both started and waiting)
-        self._procs: Dict[int, multiprocessing.context.ForkProcess] = {}
+        self._procs: Dict[int, ForkProcess] = {}
         # list of receiving pipe connections of running subprocesses
         self._precvs: Dict[int, Any] = {}
         # list of receiving pipe connections of waiting subprocesses
@@ -75,7 +81,9 @@ class ParallelTasks:
         logging.convert_serializable(collector.logs)
         pipe.send((failed, collector.logs, ret))
 
-    def add_task(self, task_func: Callable, arg: Any = None, result_func: Callable = None) -> None:  # NOQA
+    def add_task(
+        self, task_func: Callable, arg: Any = None, result_func: Optional[Callable] = None
+    ) -> None:
         tid = self._taskid
         self._taskid += 1
         self._result_funcs[tid] = result_func or (lambda arg, result: None)

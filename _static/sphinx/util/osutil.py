@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import sys
+import unicodedata
 from io import StringIO
 from os import path
 from typing import Any, Generator, Iterator, List, Optional, Type
@@ -32,6 +33,12 @@ def os_path(canonicalpath: str) -> str:
 def canon_path(nativepath: str) -> str:
     """Return path in OS-independent form"""
     return nativepath.replace(path.sep, SEP)
+
+
+def path_stabilize(filepath: str) -> str:
+    "Normalize path separator and unicode string"
+    new_path = canon_path(filepath)
+    return unicodedata.normalize('NFC', new_path)
 
 
 def relative_uri(base: str, to: str) -> str:
@@ -105,7 +112,7 @@ def make_filename_from_project(project: str) -> str:
     return make_filename(project_suffix_re.sub('', project)).lower()
 
 
-def relpath(path: str, start: str = os.curdir) -> str:
+def relpath(path: str, start: Optional[str] = os.curdir) -> str:
     """Return a relative filepath to *path* either from the current directory or
     from an optional *start* directory.
 

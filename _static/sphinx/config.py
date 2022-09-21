@@ -101,7 +101,8 @@ class Config:
         'root_doc': (lambda config: config.master_doc, 'env', []),
         'source_suffix': ({'.rst': 'restructuredtext'}, 'env', Any),
         'source_encoding': ('utf-8-sig', 'env', []),
-        'exclude_patterns': ([], 'env', []),
+        'exclude_patterns': ([], 'env', [str]),
+        'include_patterns': (["**"], 'env', [str]),
         'default_role': (None, 'env', [str]),
         'add_function_parentheses': (True, 'env', []),
         'add_module_names': (True, 'env', []),
@@ -140,6 +141,7 @@ class Config:
         'smartquotes_excludes': ({'languages': ['ja'],
                                   'builders': ['man', 'text']},
                                  'env', []),
+        'option_emphasise_placeholders': (False, 'env', []),
     }
 
     def __init__(self, config: Dict[str, Any] = {}, overrides: Dict[str, Any] = {}) -> None:
@@ -156,7 +158,9 @@ class Config:
         self.extensions: List[str] = config.get('extensions', [])
 
     @classmethod
-    def read(cls, confdir: str, overrides: Dict = None, tags: Tags = None) -> "Config":
+    def read(
+        cls, confdir: str, overrides: Optional[Dict] = None, tags: Optional[Tags] = None
+    ) -> "Config":
         """Create a Config object from configuration file."""
         filename = path.join(confdir, CONFIG_FILENAME)
         if not path.isfile(filename):
@@ -164,13 +168,13 @@ class Config:
                               confdir)
         namespace = eval_config_file(filename, tags)
 
-        # Note: Old sphinx projects have been configured as "langugae = None" because
+        # Note: Old sphinx projects have been configured as "language = None" because
         #       sphinx-quickstart previously generated this by default.
         #       To keep compatibility, they should be fallback to 'en' for a while
         #       (This conversion should not be removed before 2025-01-01).
         if namespace.get("language", ...) is None:
             logger.warning(__("Invalid configuration value found: 'language = None'. "
-                              "Update your configuration to a valid langauge code. "
+                              "Update your configuration to a valid language code. "
                               "Falling back to 'en' (English)."))
             namespace["language"] = "en"
 

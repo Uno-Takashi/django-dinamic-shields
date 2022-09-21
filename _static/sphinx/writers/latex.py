@@ -8,7 +8,7 @@ import re
 import warnings
 from collections import defaultdict
 from os import path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Set, Tuple, cast
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, cast
 
 from docutils import nodes, writers
 from docutils.nodes import Element, Node, Text
@@ -172,7 +172,9 @@ class Table:
                 assert self.cells[(self.row + row, self.col + col)] == 0
                 self.cells[(self.row + row, self.col + col)] = self.cell_id
 
-    def cell(self, row: int = None, col: int = None) -> "TableCell":
+    def cell(
+        self, row: Optional[int] = None, col: Optional[int] = None
+    ) -> Optional["TableCell"]:
         """Returns a cell object (i.e. rectangular area) containing given position.
 
         If no option arguments: ``row`` or ``col`` are given, the current position;
@@ -496,7 +498,7 @@ class LaTeXTranslator(SphinxTranslator):
         return renderer.render(template_name, variables)
 
     @property
-    def table(self) -> Table:
+    def table(self) -> Optional[Table]:
         """Get current table."""
         if self.tables:
             return self.tables[-1]
@@ -687,10 +689,10 @@ class LaTeXTranslator(SphinxTranslator):
         self.body.append('}')
 
     def visit_desc_signature(self, node: Element) -> None:
+        hyper = ''
         if node.parent['objtype'] != 'describe' and node['ids']:
-            hyper = self.hypertarget(node['ids'][0])
-        else:
-            hyper = ''
+            for id in node['ids']:
+                hyper += self.hypertarget(id)
         self.body.append(hyper)
         if not self.in_desc_signature:
             self.in_desc_signature = True
@@ -866,7 +868,7 @@ class LaTeXTranslator(SphinxTranslator):
         labels = self.hypertarget_to(node)
         table_type = self.table.get_table_type()
         table = self.render(table_type + '.tex_t',
-                            dict(table=self.table, labels=labels))
+                            {'table': self.table, 'labels': labels})
         self.body.append(BLANKLINE)
         self.body.append(table)
         self.body.append(CR)

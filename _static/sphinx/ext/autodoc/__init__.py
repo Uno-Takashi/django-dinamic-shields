@@ -34,7 +34,6 @@ from sphinx.util.typing import stringify as stringify_typehint
 if TYPE_CHECKING:
     from sphinx.ext.autodoc.directive import DocumenterBridge
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -105,7 +104,7 @@ def inherited_members_option(arg: Any) -> Set[str]:
     if arg in (None, True):
         return {'object'}
     elif arg:
-        return set(x.strip() for x in arg.split(','))
+        return {x.strip() for x in arg.split(',')}
     else:
         return set()
 
@@ -623,7 +622,7 @@ class Documenter:
                 return False, []  # type: ignore
             # specific members given
             selected = []
-            for name in self.options.members:  # type: str
+            for name in self.options.members:
                 if name in members:
                     selected.append((name, members[name].value))
                 else:
@@ -1677,7 +1676,7 @@ class ClassDocumenter(DocstringSignatureMixin, ModuleLevelDocumenter):  # type: 
                 return False, []  # type: ignore
             # specific members given
             selected = []
-            for name in self.options.members:  # type: str
+            for name in self.options.members:
                 if name in members:
                     selected.append(members[name])
                 else:

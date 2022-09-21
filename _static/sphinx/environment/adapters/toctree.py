@@ -74,6 +74,7 @@ class TocTree:
         # interactions between marking and pruning the tree (see bug #1046).
 
         toctree_ancestors = self.get_toctree_ancestors(docname)
+        included = Matcher(self.env.config.include_patterns)
         excluded = Matcher(self.env.config.exclude_patterns)
 
         def _toctree_add_classes(node: Element, depth: int) -> None:
@@ -164,8 +165,10 @@ class TocTree:
                                        ref, location=toctreenode)
                 except KeyError:
                     # this is raised if the included file does not exist
-                    if excluded(self.env.doc2path(ref, None)):
+                    if excluded(self.env.doc2path(ref, False)):
                         message = __('toctree contains reference to excluded document %r')
+                    elif not included(self.env.doc2path(ref, False)):
+                        message = __('toctree contains reference to non-included document %r')
                     else:
                         message = __('toctree contains reference to nonexisting document %r')
 

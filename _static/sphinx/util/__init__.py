@@ -8,7 +8,7 @@ import re
 import sys
 import tempfile
 import traceback
-import unicodedata
+import warnings
 from datetime import datetime
 from importlib import import_module
 from os import path
@@ -17,6 +17,7 @@ from typing import (IO, TYPE_CHECKING, Any, Callable, Dict, Generator, Iterable,
                     Optional, Pattern, Set, Tuple, Type, TypeVar)
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
+from sphinx.deprecation import RemovedInSphinx70Warning
 from sphinx.errors import ExtensionError, FiletypeNotFoundError, SphinxParallelError
 from sphinx.locale import __
 from sphinx.util import logging
@@ -50,16 +51,25 @@ def docname_join(basedocname: str, docname: str) -> str:
 
 def path_stabilize(filepath: str) -> str:
     "Normalize path separator and unicode string"
-    newpath = filepath.replace(os.path.sep, SEP)
-    return unicodedata.normalize('NFC', newpath)
+    warnings.warn("'sphinx.util.path_stabilize' is deprecated, use "
+                  "'sphinx.util.osutil.path_stabilize' instead.",
+                  RemovedInSphinx70Warning, stacklevel=2)
+    from sphinx.util import osutil
+
+    return osutil.path_stabilize(filepath)
 
 
 def get_matching_files(dirname: str,
-                       exclude_matchers: Tuple[PathMatcher, ...] = ()) -> Iterable[str]:  # NOQA
+                       exclude_matchers: Tuple[PathMatcher, ...] = (),
+                       include_matchers: Tuple[PathMatcher, ...] = ()) -> Iterable[str]:  # NOQA
     """Get all file names in a directory, recursively.
 
     Exclude files and dirs matching some matcher in *exclude_matchers*.
     """
+    warnings.warn("'sphinx.util.get_matching_files' is deprecated, use "
+                  "'sphinx.util.matching.get_matching_files' instead. Note that"
+                  "the types of the arguments have changed from callables to "
+                  "plain string glob patterns.", RemovedInSphinx70Warning, stacklevel=2)
     # dirname is a normalized absolute path.
     dirname = path.normpath(path.abspath(dirname))
 
@@ -305,7 +315,7 @@ def parselinenos(spec: str, total: int) -> List[int]:
     """Parse a line number spec (such as "1,2,4-6") and return a list of
     wanted line numbers.
     """
-    items = list()
+    items = []
     parts = spec.split(',')
     for part in parts:
         try:
@@ -424,7 +434,7 @@ def encode_uri(uri: str) -> str:
     split = list(urlsplit(uri))
     split[1] = split[1].encode('idna').decode('ascii')
     split[2] = quote_plus(split[2].encode(), '/')
-    query = list((q, v.encode()) for (q, v) in parse_qsl(split[3]))
+    query = [(q, v.encode()) for (q, v) in parse_qsl(split[3])]
     split[3] = urlencode(query)
     return urlunsplit(split)
 
